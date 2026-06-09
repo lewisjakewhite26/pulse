@@ -1,33 +1,19 @@
 /**
- * Renpho QN-Scale / Yolanda protocol (ES-26M).
- * FFE1 is notify-only; writes go to FFE3, FFE4, or FFE5 on service FFE0.
+ * Renpho ES-26M / ES-CS20M BLE protocol (QN-Scale).
+ * Based on renpho-escs20m: wait for 0x21 profile request when user steps on,
+ * reply on FFE3, decode stable 0x10 frames (weight ÷100, impedance bytes 7-8).
  */
 
 export const WEIGHT_MEASUREMENT_SERVICE_T1 =
   "0000ffe0-0000-1000-8000-00805f9b34fb";
-export const WEIGHT_MEASUREMENT_SERVICE_T2 =
-  "0000fff0-0000-1000-8000-00805f9b34fb";
-export const AE00_SERVICE = "0000ae00-0000-1000-8000-00805f9b34fb";
-
 export const CUSTOM1_MEASUREMENT_CHARACTERISTIC =
   "0000ffe1-0000-1000-8000-00805f9b34fb";
 export const CUSTOM3_MEASUREMENT_CHARACTERISTIC =
   "0000ffe3-0000-1000-8000-00805f9b34fb";
-export const CUSTOM4_MEASUREMENT_CHARACTERISTIC =
-  "0000ffe4-0000-1000-8000-00805f9b34fb";
-export const CUSTOM5_CONTROL_CHARACTERISTIC =
-  "0000ffe5-0000-1000-8000-00805f9b34fb";
 
-const WRITE_CHAR_PRIORITY = [
-  CUSTOM3_MEASUREMENT_CHARACTERISTIC,
-  CUSTOM4_MEASUREMENT_CHARACTERISTIC,
-  CUSTOM5_CONTROL_CHARACTERISTIC,
-];
-
-const SCALE_INFO_FRAME_LENGTH = 15;
-
-const YOLANDA_WEIGHT_DIVISOR = 10;
-const READING_TIMEOUT_MS = 60_000;
+const WEIGHT_SCALE_FACTOR = 100;
+const READING_TIMEOUT_MS = 90_000;
+const DEFAULT_ALGORITHM = 0x04;
 
 /** DEBUG — remove after fix */
 export type RenphoDebugLogFn = (message: string) => void;
@@ -80,48 +66,38 @@ function xorChecksum(bytes: number[]): number {
   return bytes.reduce((acc, value) => acc ^ value, 0);
 }
 
-function buildUserProfilePacket(): Uint8Array {
-  // DEBUG HARDCODED — remove once Renpho connection is working
-  const isMale = true;
-  const age = 34;
-  const height = 180;
+function buildProfilePacket(
+  isMale: boolean,
+  age: number,
+  heightCm: number,
+  algorithm: number = DEFAULT_ALGORITHM
+): Uint8Array {
   const profileBody = [
     0x13,
     0x00,
     isMale ? 0x01 : 0x00,
     age,
-    height,
+    heightCm,
     0x00,
-    0x00,
+    algorithm,
   ];
   return new Uint8Array([...profileBody, xorChecksum(profileBody)]);
 }
 
-function buildTimeSyncPacket(): Uint8Array {
-  const now = new Date();
-  return new Uint8Array([
-    0x02,
-    now.getFullYear() - 2000,
-    now.getMonth() + 1,
-    now.getDate(),
-    now.getHours(),
-  ]);
-}
-
-function decodeYolandaWeight(data: Uint8Array): number | null {
+function decodeWeightKg(data: Uint8Array): number | null {
   if (data.length < 5) return null;
   const weightRaw = ((data[3] & 0xff) << 8) | (data[4] & 0xff);
-  const weightKg = weightRaw / YOLANDA_WEIGHT_DIVISOR;
+  const weightKg = weightRaw / WEIGHT_SCALE_FACTOR;
   if (weightKg < 20 || weightKg > 300 || !Number.isFinite(weightKg)) return null;
   return weightKg;
 }
 
-function decodeYolandaImpedance(data: Uint8Array): number {
-  if (data.length < 11) return 0;
-  const imp1 = ((data[9] & 0xff) << 8) | (data[10] & 0xff);
+function decodeImpedance(data: Uint8Array): number {
+  if (data.length < 9) return 0;
+  const imp1 = ((data[7] & 0xff) << 8) | (data[8] & 0xff);
   const imp2 =
-    data.length > 12 ? ((data[11] & 0xff) << 8) | (data[12] & 0xff) : 0;
-  return imp1 < 41 ? imp2 : imp1;
+    data.length > 10 ? ((data[9] & 0xff) << 8) | (data[10] & 0xff) : 0;
+  return imp1 > 0 ? imp1 : imp2;
 }
 
 function buildWeightOnlyComposition(
@@ -140,32 +116,11 @@ function buildWeightOnlyComposition(
   };
 }
 
-async function resolveWriteCharacteristic(
-  service: BluetoothRemoteGATTService,
-  logDebug: RenphoDebugLogFn
-): Promise<BluetoothRemoteGATTCharacteristic | null> {
-  for (const uuid of WRITE_CHAR_PRIORITY) {
-    try {
-      const characteristic = await service.getCharacteristic(uuid);
-      if (
-        characteristic.properties.write ||
-        characteristic.properties.writeWithoutResponse
-      ) {
-        logRenphoDebug(logDebug, `[Renpho] Using write characteristic: ${uuid}`);
-        return characteristic;
-      }
-    } catch {
-      // characteristic not available on this firmware
-    }
-  }
-  return null;
-}
-
 async function enumerateServiceCharacteristics(
   service: BluetoothRemoteGATTService,
   label: string,
   logDebug: RenphoDebugLogFn
-): Promise<BluetoothRemoteGATTCharacteristic[]> {
+): Promise<void> {
   const characteristics = await service.getCharacteristics();
   logRenphoDebug(
     logDebug,
@@ -183,7 +138,6 @@ async function enumerateServiceCharacteristics(
       })}`
     );
   }
-  return characteristics;
 }
 
 async function writeToChar(
@@ -216,18 +170,11 @@ async function writeToChar(
 }
 
 /** DEBUG — remove after fix */
-function debugLogFrame(
-  logDebug: RenphoDebugLogFn,
-  data: Uint8Array
-): void {
+function debugLogFrame(logDebug: RenphoDebugLogFn, data: Uint8Array): void {
   const hex = Array.from(data)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join(" ");
-  logRenphoDebug(
-    logDebug,
-    `[Renpho] Frame received (${data.length} bytes): ${hex}`
-  );
-  logRenphoDebug(logDebug, `[Renpho] First byte: 0x${data[0].toString(16)}`);
+  logRenphoDebug(logDebug, `[Renpho] Frame (${data.length}b): ${hex}`);
 }
 
 export function isWebBluetoothAvailable(): boolean {
@@ -254,8 +201,9 @@ export async function connectRenphoScale(
   let completed = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let device: BluetoothDevice | undefined;
-  let ffe1: BluetoothRemoteGATTCharacteristic | undefined;
+  let notifyChar: BluetoothRemoteGATTCharacteristic | undefined;
   let writeChar: BluetoothRemoteGATTCharacteristic | null = null;
+  let profileSent = false;
   let lastStableWeight = 0;
 
   const clearReadingTimeout = () => {
@@ -267,7 +215,7 @@ export async function connectRenphoScale(
 
   const disconnectScale = () => {
     try {
-      if (ffe1) void ffe1.stopNotifications();
+      if (notifyChar) void notifyChar.stopNotifications();
       if (device?.gatt?.connected) device.gatt.disconnect();
     } catch {
       // ignore cleanup errors
@@ -298,71 +246,46 @@ export async function connectRenphoScale(
     disconnectScale();
   };
 
-  const handleHandshakeResponse = async (logMessage: string) => {
-    if (!writeChar) return;
-    logRenphoDebug(logDebug, logMessage);
-    await writeToChar(writeChar, new Uint8Array([0xae, 0x01]), "AE01 init", logDebug);
-    await writeToChar(
-      writeChar,
-      buildUserProfilePacket(),
-      "0x13 user config",
-      logDebug
-    );
-    await writeToChar(writeChar, buildTimeSyncPacket(), "0x02 time sync", logDebug);
-  };
-
   const handleNotification = (event: Event) => {
     const target = event.target as BluetoothRemoteGATTCharacteristic;
     if (!target.value || completed) return;
 
     const data = new Uint8Array(target.value.buffer);
     debugLogFrame(logDebug, data);
-    if (data.length < 3) return;
+    if (data.length < 1) return;
 
     const opcode = data[0];
 
-    if (opcode === 0x14) {
-      void handleHandshakeResponse(
-        "[Renpho] 0x14 received — sending AE01 init + user config"
-      );
-      return;
-    }
-
     if (opcode === 0x12) {
-      if (data.length === SCALE_INFO_FRAME_LENGTH) {
-        void handleHandshakeResponse(
-          "[Renpho] 0x12 scale info received — sending AE01 init + user config"
-        );
-        return;
-      }
+      logRenphoDebug(logDebug, "[Renpho] 0x12 idle broadcast (ignored)");
+      return;
+    }
 
-      const weightKg = decodeYolandaWeight(data);
+    if (opcode === 0x21 && !profileSent && writeChar) {
+      profileSent = true;
+      logRenphoDebug(logDebug, "[Renpho] 0x21 profile request — sending user profile");
+      const packet = buildProfilePacket(isMale, age, height, DEFAULT_ALGORITHM);
+      void writeToChar(writeChar, packet, "0x13 user profile", logDebug);
+      return;
+    }
+
+    if (opcode === 0x20 && data.length >= 5) {
+      const weightKg = decodeWeightKg(data);
       if (weightKg !== null) {
         lastStableWeight = weightKg;
-        logRenphoDebug(logDebug, `[Renpho] 0x12 weight frame: ${weightKg}kg`);
-        onStatus("reading");
+        logRenphoDebug(logDebug, `[Renpho] 0x20 unstable weight: ${weightKg}kg`);
       }
       return;
     }
 
-    if (opcode === 0x15) {
-      const weightKg = decodeYolandaWeight(data);
-      if (weightKg !== null) {
-        lastStableWeight = weightKg;
-        logRenphoDebug(logDebug, `[Renpho] Unstable weight: ${weightKg}kg`);
-        onStatus("reading");
-      }
-      return;
-    }
-
-    if (opcode === 0x10 || (opcode === 0x13 && data.length >= 10)) {
-      const weightKg = decodeYolandaWeight(data);
+    if (opcode === 0x10 && data.length >= 10) {
+      const weightKg = decodeWeightKg(data);
       if (weightKg === null) return;
 
-      const impedance = decodeYolandaImpedance(data);
+      const impedance = decodeImpedance(data);
       logRenphoDebug(
         logDebug,
-        `[Renpho] Final weight: ${weightKg}kg, impedance: ${impedance}Ω`
+        `[Renpho] 0x10 weight: ${weightKg}kg impedance: ${impedance}Ω`
       );
       finishWithReading(weightKg, impedance);
     }
@@ -371,11 +294,7 @@ export async function connectRenphoScale(
   try {
     device = await navigator.bluetooth!.requestDevice({
       filters: [{ namePrefix: "QN-Scale" }],
-      optionalServices: [
-        WEIGHT_MEASUREMENT_SERVICE_T1,
-        WEIGHT_MEASUREMENT_SERVICE_T2,
-        AE00_SERVICE,
-      ],
+      optionalServices: [WEIGHT_MEASUREMENT_SERVICE_T1],
     });
 
     device.addEventListener("gattserverdisconnected", () => {
@@ -388,36 +307,24 @@ export async function connectRenphoScale(
     const server = await device.gatt!.connect();
     logRenphoDebug(logDebug, "[Renpho] Connected to GATT server");
 
-    const vendorService = await server.getPrimaryService(
-      WEIGHT_MEASUREMENT_SERVICE_T1
-    );
+    const service = await server.getPrimaryService(WEIGHT_MEASUREMENT_SERVICE_T1);
     logRenphoDebug(logDebug, "[Renpho] Got vendor service FFE0");
+    await enumerateServiceCharacteristics(service, "FFE0", logDebug);
 
-    await enumerateServiceCharacteristics(vendorService, "FFE0", logDebug);
-
-    try {
-      const fff0Service = await server.getPrimaryService(
-        WEIGHT_MEASUREMENT_SERVICE_T2
-      );
-      await enumerateServiceCharacteristics(fff0Service, "FFF0", logDebug);
-    } catch {
-      logRenphoDebug(logDebug, "[Renpho] No FFF0 service on this firmware");
-    }
-
-    ffe1 = await vendorService.getCharacteristic(CUSTOM1_MEASUREMENT_CHARACTERISTIC);
-    await ffe1.startNotifications();
-    ffe1.addEventListener("characteristicvaluechanged", handleNotification);
+    notifyChar = await service.getCharacteristic(CUSTOM1_MEASUREMENT_CHARACTERISTIC);
+    writeChar = await service.getCharacteristic(CUSTOM3_MEASUREMENT_CHARACTERISTIC);
 
     logRenphoDebug(
       logDebug,
-      `[Renpho] FFE1 properties: write=${ffe1.properties.write} writeWithoutResponse=${ffe1.properties.writeWithoutResponse} notify=${ffe1.properties.notify}`
+      `[Renpho] FFE1 notify=${notifyChar.properties.notify} FFE3 write=${writeChar.properties.write} writeWithoutResponse=${writeChar.properties.writeWithoutResponse}`
+    );
+    logRenphoDebug(
+      logDebug,
+      "[Renpho] Connected. Waiting for scale profile request (step on scale now)."
     );
 
-    writeChar = await resolveWriteCharacteristic(vendorService, logDebug);
-    if (!writeChar) {
-      finishWithError("No writable characteristic found on this scale firmware.");
-      return;
-    }
+    await notifyChar.startNotifications();
+    notifyChar.addEventListener("characteristicvaluechanged", handleNotification);
 
     onStatus("reading");
 
@@ -426,13 +333,13 @@ export async function connectRenphoScale(
       if (lastStableWeight > 0) {
         logRenphoDebug(
           logDebug,
-          `[Renpho] Timeout but have stable weight ${lastStableWeight}kg — saving weight-only measurement`
+          `[Renpho] Timeout — saving weight-only: ${lastStableWeight}kg`
         );
         finishWithReading(lastStableWeight, 0);
         return;
       }
       finishWithError(
-        "No reading received. Make sure you step on the scale with bare feet after connecting."
+        "No reading received. Step on the scale after connecting."
       );
     }, READING_TIMEOUT_MS);
   } catch (err) {

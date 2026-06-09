@@ -27,7 +27,8 @@ export default function AccountSetup({
   existingProfileName = "",
 }: AccountSetupProps) {
   const [step, setStep] = useState(0);
-  const [username, setUsername] = useState(existingProfileName);
+  // DEBUG HARDCODED — remove before shipping to others
+  const [username, setUsername] = useState(existingProfileName || "Lewis");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");

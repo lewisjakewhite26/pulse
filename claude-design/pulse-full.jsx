@@ -347,7 +347,9 @@ function Onboarding({ onComplete }) {
   const [debugLogs, setDebugLogs] = useState([]); // DEBUG — remove after fix
 
   const [p, setP] = useState({
-    name: getAccount()?.username || "", dob: "", sex: "",
+    // DEBUG HARDCODED — remove before shipping to others
+    name: getAccount()?.username || "Lewis", // DEBUG hardcoded
+    dob: "", sex: "",
     height: "", weight: "", bodyFat: "", muscleMass: "",
     goal: "", sport: "", trainingDays: "", trainingIntensity: "",
     dietStyle: "", breakfast: "", lunch: "", dinner: "", snacks: "", favFoods: "", avoidFoods: "",
@@ -361,6 +363,27 @@ function Onboarding({ onComplete }) {
   const next = () => setStep(s => s + 1);
   const back = () => setStep(s => Math.max(0, s - 1));
   const TOTAL = 14;
+
+  // DEBUG — remove before shipping
+  const skipOnboarding = () => {
+    const profile = {
+      ...EMPTY_PROFILE,
+      name: "Lewis",
+      age: "34",
+      sex: "Male",
+      height: "180",
+      weight: "84",
+      calorieTarget: "2400",
+      proteinTarget: "180",
+      carbTarget: "240",
+      fatTarget: "65",
+      waterTarget: "3000",
+      stepsTarget: "10000",
+    };
+    saveProfile(profile);
+    setOnboarded(true);
+    window.location.reload();
+  };
 
   const calcBIA = (weight, impedance, age, heightCm, isMale) => {
     const h = heightCm / 100;
@@ -481,6 +504,24 @@ function Onboarding({ onComplete }) {
       <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 12 }}>
         <Btn onClick={next}>Get started</Btn>
         <div style={{ fontSize: 12, color: C.onSurfaceVariant }}>Takes about 3 minutes. Everything stays on your device.</div>
+        {/* DEBUG — remove before shipping */}
+        <button
+          type="button"
+          onClick={skipOnboarding}
+          style={{
+            marginTop: 8,
+            padding: 0,
+            border: "none",
+            background: "transparent",
+            color: C.onSurfaceVariant,
+            fontSize: 11,
+            fontFamily: "inherit",
+            cursor: "pointer",
+            textDecoration: "underline",
+          }}
+        >
+          Skip onboarding (dev)
+        </button>
       </div>
     </div>
   );
@@ -546,7 +587,7 @@ function Onboarding({ onComplete }) {
 
   if (step === 4) {
     const scaleLoading = ["scanning", "connected", "reading"].includes(scaleStatus);
-    const statusMsg = { scanning: "Scanning for your scale...", connected: "Connected — step on with bare feet", reading: "Reading — stand still", done: "Reading complete — values filled below", error: scaleError || "Connection failed", unsupported: "Web Bluetooth not supported — use Chrome on Android" }[scaleStatus];
+    const statusMsg = { scanning: "Scanning for your scale...", connected: "Connected — step on with bare feet", reading: "Step on the scale — waiting for measurement", done: "Reading complete — values filled below", error: scaleError || "Connection failed", unsupported: "Web Bluetooth not supported — use Chrome on Android" }[scaleStatus];
     const statusColor = { done: C.secondary, error: C.error, unsupported: C.error, scanning: C.amber, reading: C.amber, connected: C.primary }[scaleStatus];
     return (
       <div style={ss}><div style={{ paddingTop: 56 }}><ProgressBar step={4} total={TOTAL} /></div>
@@ -1507,7 +1548,7 @@ export default function Pulse() {
                     {scaleStatus === "idle" && "Chrome on Android only"}
                     {scaleStatus === "scanning" && "Scanning for QN-Scale..."}
                     {scaleStatus === "connected" && "Connected — step on scale"}
-                    {scaleStatus === "reading" && "Reading — stand still"}
+                    {scaleStatus === "reading" && "Step on the scale — waiting for measurement"}
                     {scaleStatus === "done" && "Reading complete"}
                     {scaleStatus === "error" && (scaleError || "Error")}
                   </div>
