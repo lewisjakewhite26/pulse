@@ -15,6 +15,7 @@ const READING_TIMEOUT_MS = 90_000;
 const Y2K_EPOCH_MS = Date.UTC(2000, 0, 1);
 
 const UNIT_INIT_PAYLOAD = [0x13, 0x09, 0x15, 0x01, 0x10, 0x00, 0x00, 0x00];
+const DEFAULT_ALGORITHM = 0x04;
 
 type ProtocolState = "INIT" | "TIME_SYNC" | "AWAITING_WEIGHT";
 
@@ -116,6 +117,55 @@ function y2kEpochBytes(): number[] {
 function buildTimeSyncPayload(): number[] {
   const tBytes = y2kEpochBytes();
   return [0x1d, 0x09, 0x15, tBytes[0], tBytes[1], tBytes[2], tBytes[3], 0x00];
+}
+
+function xorChecksum(bytes: number[]): number {
+  return bytes.reduce((acc, value) => acc ^ value, 0);
+}
+
+function buildProfilePacket(
+  isMale: boolean,
+  ageYears: number,
+  heightCm: number,
+  algorithm: number = DEFAULT_ALGORITHM
+): Uint8Array {
+  const profileBody = [
+    0x13,
+    0x00,
+    isMale ? 0x01 : 0x00,
+    ageYears,
+    heightCm,
+    0x00,
+    algorithm,
+  ];
+  return new Uint8Array([...profileBody, xorChecksum(profileBody)]);
+}
+
+async function sendRawPacket(
+  characteristic: BluetoothRemoteGATTCharacteristic,
+  packet: Uint8Array,
+  label: string,
+  logDebug: RenphoDebugLogFn
+): Promise<boolean> {
+  try {
+    const hex = Array.from(packet)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(" ");
+    logRenphoDebug(logDebug, `[Renpho] ${label}: ${hex}`);
+
+    if (characteristic.properties.writeWithoutResponse) {
+      await characteristic.writeValueWithoutResponse(packet);
+    } else if (characteristic.properties.write) {
+      await characteristic.writeValueWithResponse(packet);
+    } else {
+      logRenphoDebug(logDebug, `[Renpho] Cannot write ${label}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logRenphoDebug(logDebug, `[Renpho] Failed ${label}: ${String(err)}`);
+    return false;
+  }
 }
 
 function decodeWeightKg(data: Uint8Array): number | null {
@@ -257,6 +307,39 @@ export async function connectRenphoScale(
     await sendVerifiedPacket(writeChar, UNIT_INIT_PAYLOAD, logDebug);
   };
 
+  const sendUserProfile = async () => {
+    if (!writeChar) return;
+    logRenphoDebug(logDebug, "[Renpho] Pushing user profile packet post-handshake...");
+    const packet = buildProfilePacket(isMale, age, height, DEFAULT_ALGORITHM);
+    const ok = await sendRawPacket(
+      writeChar,
+      packet,
+      "Profile packet",
+      logDebug
+    );
+    if (ok) {
+      logRenphoDebug(logDebug, "[Renpho] Profile successfully delivered.");
+    }
+  };
+
+  const handleWeightFrame = (data: Uint8Array, label: string) => {
+    const weightKg = decodeWeightKg(data);
+    if (weightKg === null) return;
+
+    const isStable = data.length >= 6 && data[5] === 0x01;
+    logRenphoDebug(
+      logDebug,
+      `[Renpho] ${label}: ${weightKg}kg | Stable: ${isStable}`
+    );
+
+    if (isStable) {
+      const impedance = decodeImpedance(data);
+      finishWithReading(weightKg, impedance);
+    } else {
+      lastStableWeight = weightKg;
+    }
+  };
+
   const handleFrame = async (data: Uint8Array) => {
     if (completed || !writeChar) return;
     const opcode = data[0];
@@ -288,26 +371,31 @@ export async function connectRenphoScale(
           logDebug,
           "[Renpho] Handshake complete. Scale ready for weight frames."
         );
+        await sendUserProfile();
       }
       return;
     }
 
+    if (opcode === 0x21 && protocolState === "AWAITING_WEIGHT") {
+      logRenphoDebug(logDebug, "[Renpho] 0x21 profile request — resending user profile");
+      await sendUserProfile();
+      return;
+    }
+
     if (opcode === 0x10 && data.length >= 6) {
+      handleWeightFrame(data, "Weight update");
+      return;
+    }
+
+    if (opcode === 0x20 && data.length >= 5) {
       const weightKg = decodeWeightKg(data);
       if (weightKg === null) return;
-
-      const isStable = data[5] === 0x01;
+      const impedance = decodeImpedance(data);
       logRenphoDebug(
         logDebug,
-        `[Renpho] Weight update: ${weightKg}kg | Stable: ${isStable}`
+        `[Renpho] 0x20 final weight: ${weightKg}kg | impedance: ${impedance}Ω`
       );
-
-      if (isStable) {
-        const impedance = decodeImpedance(data);
-        finishWithReading(weightKg, impedance);
-      } else {
-        lastStableWeight = weightKg;
-      }
+      finishWithReading(weightKg, impedance);
     }
   };
 
