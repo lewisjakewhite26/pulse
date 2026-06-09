@@ -4,63 +4,147 @@ export interface PulseAccount {
   created_at: string;
 }
 
-export interface AnalysisScore {
-  score: number;
-  verdict: string;
+export interface PulseProfileExtracted {
+  currentWeight?: number;
+  targetWeight?: number;
+  currentBodyFat?: number;
+  targetBodyFat?: number;
+  activityLevel?: string;
+  sport?: string;
+  drinkingHabit?: string;
+  sleepQuality?: string;
+  stressLevel?: string;
+  medication?: string[];
+  supplements?: string[];
+  dietStyle?: string;
+  typicalMeals?: {
+    breakfast?: string;
+    lunch?: string;
+    dinner?: string;
+    snacks?: string;
+  };
+  avoidFoods?: string[];
+  otherNotes?: string;
 }
 
-export interface AnalysisScores {
-  hydration: AnalysisScore;
-  sleep: AnalysisScore;
-  nutrition: AnalysisScore;
-  activity: AnalysisScore;
-  lifestyle: AnalysisScore;
+export interface PulseProfileLearned {
+  favouriteFoods?: string[];
+  usualLunch?: string;
+  usualBreakfast?: string;
+  usualDinner?: string;
+  alcoholPattern?: string;
+  medicationMentioned?: string[];
+  supplementsMentioned?: string[];
+  patterns?: string[];
+}
+
+export interface PulseProfileTargets {
+  calories?: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
+  water_ml?: number;
+  steps?: number;
+  calculated?: boolean;
+  calculatedAt?: string;
+}
+
+export interface PulseProfileMeasurement {
+  weight?: number;
+  bodyFat?: number;
+  muscleMass?: number;
+  bmr?: number;
+  date?: string;
 }
 
 export interface PulseProfile {
   name: string;
-  dob: string;
-  age: string;
-  sex: string;
-  height: string;
-  weight: string;
-  bodyFat: string;
-  muscleMass: string;
-  goalWeight: string;
-  goalBodyFat: string;
-  goals: string;
-  activityLevel: string;
-  sport: string;
-  trainingDays: string;
-  trainingIntensity: string;
-  dietStyle: string;
-  usualBreakfast: string;
-  usualLunch: string;
-  usualDinner: string;
-  usualSnacks: string;
-  favouriteFoods: string;
-  dislikedFoods: string;
-  waterHabit: string;
-  medication: string;
-  supplements: string;
-  alcoholHabit: string;
-  alcoholFreq: string;
-  alcoholUnits: string;
-  alcoholDrinks: string;
-  smokingStatus: string;
-  sleepHours: string;
-  sleepQuality: string;
-  stressLevel: string;
-  substanceUse: string;
-  otherHabits: string;
-  calorieTarget: string;
-  proteinTarget: string;
-  carbTarget: string;
-  fatTarget: string;
-  waterTarget: string;
-  stepsTarget: string;
-  analysisScores: AnalysisScores | null;
-  overallScore: number | null;
+  dateOfBirth: string;
+  sex: "Male" | "Female";
+  currentSituation: string;
+  goal: string;
+  timeline: number;
+  effortLevel: 1 | 2 | 3 | 4;
+  extracted: PulseProfileExtracted;
+  learned: PulseProfileLearned;
+  targets: PulseProfileTargets;
+  latestMeasurement?: PulseProfileMeasurement;
+}
+
+/** @deprecated Legacy shape — migrated on read */
+export interface LegacyPulseProfile {
+  name: string;
+  dob?: string;
+  age?: string;
+  sex?: string;
+  height?: string;
+  weight?: string;
+  bodyFat?: string;
+  muscleMass?: string;
+  goalWeight?: string;
+  goalBodyFat?: string;
+  goals?: string;
+  calorieTarget?: string;
+  proteinTarget?: string;
+  carbTarget?: string;
+  fatTarget?: string;
+  waterTarget?: string;
+  stepsTarget?: string;
+  sport?: string;
+  dietStyle?: string;
+  usualBreakfast?: string;
+  usualLunch?: string;
+  usualDinner?: string;
+  usualSnacks?: string;
+  favouriteFoods?: string;
+  dislikedFoods?: string;
+  medication?: string;
+  supplements?: string;
+  alcoholHabit?: string;
+  sleepQuality?: string;
+  stressLevel?: string;
+  otherHabits?: string;
+  analysisScores?: unknown;
+  overallScore?: number | null;
+}
+
+export interface PulseGoalTarget {
+  metric: string;
+  current: number;
+  target: number;
+  unit: string;
+}
+
+export interface PulseGoalMilestone {
+  label: string;
+  date: string;
+  projectedBodyFat?: number;
+  projectedWeight?: number;
+  description: string;
+}
+
+export interface PulseGoal {
+  raw: string;
+  targets: PulseGoalTarget[];
+  timeline: number;
+  effortLevel: 1 | 2 | 3 | 4;
+  milestones: PulseGoalMilestone[];
+  generatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "coach";
+  text: string;
+  timestamp: string;
+  imageDescription?: string;
+}
+
+export interface CoachState {
+  welcomeMessage?: string;
+  welcomeDelivered?: boolean;
+  unreadCount: number;
+  lastCoachMessageAt?: string;
 }
 
 export interface ParsedNutrition {
@@ -194,8 +278,17 @@ export interface PulseBackup {
   daily: Record<string, DailyTotals>;
   activities: Activity[];
   measurements: Measurement[];
+  chatHistory?: ChatMessage[];
+  goals?: PulseGoal | null;
 }
 
 export interface ParsedBackupFile extends PulseBackup {
   backupDate: string;
+}
+
+export interface CoachChatResponse {
+  message: string;
+  parsed: ParsedNutrition;
+  profile_updates?: Partial<PulseProfileLearned>;
+  should_log?: boolean;
 }

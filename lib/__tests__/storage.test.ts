@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParsedNutrition, PulseProfile } from "../types";
+import type { ParsedNutrition } from "../types";
+import { createEmptyProfile } from "../profile-helpers";
 import {
   addActivityIfNew,
   addLog,
@@ -36,50 +37,16 @@ const baseParsed: ParsedNutrition = {
   notes: "",
 };
 
-const emptyProfile: PulseProfile = {
-  name: "Test",
-  dob: "1990-01-01",
-  age: "36",
-  sex: "Male",
-  height: "180",
-  weight: "80",
-  bodyFat: "18",
-  muscleMass: "60",
-  goalWeight: "75",
-  goalBodyFat: "15",
-  goals: "Get fit",
-  activityLevel: "Moderate",
-  sport: "Running",
-  trainingDays: "3",
-  trainingIntensity: "Moderate",
-  dietStyle: "Balanced",
-  usualBreakfast: "Porridge",
-  usualLunch: "Wrap",
-  usualDinner: "Pasta",
-  usualSnacks: "Fruit",
-  favouriteFoods: "Chicken",
-  dislikedFoods: "None",
-  waterHabit: "2L",
-  medication: "None",
-  supplements: "None",
-  alcoholHabit: "Weekends",
-  alcoholFreq: "Weekends",
-  alcoholUnits: "14",
-  alcoholDrinks: "Beer",
-  smokingStatus: "Non-smoker",
-  sleepHours: "7",
-  sleepQuality: "Decent",
-  stressLevel: "Moderate",
-  substanceUse: "None",
-  otherHabits: "",
-  calorieTarget: "2000",
-  proteinTarget: "150",
-  carbTarget: "200",
-  fatTarget: "65",
-  waterTarget: "2500",
-  stepsTarget: "8000",
-  analysisScores: null,
-  overallScore: null,
+const emptyProfile = {
+  ...createEmptyProfile("Test"),
+  dateOfBirth: "1990-01-01",
+  targets: {
+    calories: 2000,
+    protein_g: 150,
+    water_ml: 2500,
+    steps: 8000,
+    calculated: true,
+  },
 };
 
 beforeEach(() => {

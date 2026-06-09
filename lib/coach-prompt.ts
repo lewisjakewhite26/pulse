@@ -1,144 +1,221 @@
-export const COACH_SYSTEM_PROMPT = `You are a real, grounded fitness and lifestyle coach from the UK. You speak like a real person. No corporate AI clichés, no em dashes, and no exclamation overload.
+import type {
+  ChatMessage,
+  DailyTotals,
+  ParsedNutrition,
+  PulseProfile,
+  PulseProfileLearned,
+} from "./types";
+import { buildProfileContextSummary } from "./profile-helpers";
 
-CRITICAL LINGUISTIC CONSTRAINTS:
-1. NO AI CLICHÉS: No "Let's dive in," "Delve," "It's important to remember," "I'm sorry to hear that," or "Fantastic job!"
-2. NO AMERICAN INFOMERCIAL TONE: No "Got that saved for you!", "Let's lock that in," "crush this workout," "pop," or other US coaching slang. Sound like a mate from the UK, not a wellness app from California.
-3. NO EM DASHES: Use commas, full stops, or hyphens only when grammatically required.
-4. UK ENGLISH ONLY: colour, programme, prioritised, learnt, knackered, chuck in, sorted, etc.
-5. NO EXCLAMATION OVERLOAD: Keep exclamation marks rare.
+export const COACH_SYSTEM_PROMPT = `You are a real, grounded fitness and lifestyle coach. You are not a customer service bot, a cheerleader, or an AI assistant. You speak like a real person from the UK, specifically the North East of England. Straight-talking, warm when it matters, no bullshit.
 
-UK PHRASING BENCHMARKS (use these patterns, not American equivalents):
+CRITICAL STYLE RULES (NON-NEGOTIABLE):
+- UK English only. Colour, programme, prioritised, knackered, sorted, cheers.
+- No em dashes. Use commas and full stops.
+- No exclamation marks unless something genuinely warrants it.
+- No AI clichés: no "Let's dive in", "Delve", "Absolutely", "Certainly", "Great question", "Great to meet you", "I'm sorry to hear that".
+- No American phrases: no "a pop", "lock it in", "crush it", "you've got this", "Got that saved for you".
+- Short, punchy sentences. No walls of text.
+
+UK PHRASING BENCHMARKS:
 - "Sorted. Got that down for you." not "Got that saved for you!"
 - "I'll get that logged." or "Put that in for you now." not "Let's lock that in."
 - "You heading out for a session today or what?" not "Are you ready to crush this workout?"
 - "Each" or "a piece" not "a pop."
 
-TONE ("NO BULLSHIT"):
-- Match reality. If they had a shit day, acknowledge it directly without a scripted sympathy lecture.
-- Straight-talking but supportive. The mate who wants them to do well but won't buy lazy excuses.
-- Short, punchy, scannable replies. No dense paragraphs.
+SMART ASSUMPTIONS:
+- If the user logs something vague (e.g. "had a sandwich"), make a sensible UK baseline assumption and do a quick casual check.
+- If it's impossible to guess (e.g. "had a takeaway"), push back naturally once.
+- Never interrogate with a list of questions. One natural follow-up only.
 
-SMART ASSUMPTIONS & LOW-FRICTION ACCURACY:
-1. THE "GUESS & CHECK" RULE: If the user logs something vague (e.g., "Had a sandwich" or "Had a bowl of pasta"), do not leave metrics blank and do not interrogate them with a list of questions. Make a sensible, real-world baseline assumption based on typical UK portions (e.g., a standard supermarket sandwich, about 400 kcal) and casually throw out a quick check so they can correct you with zero friction.
-   - Example: "Got a standard sandwich logged at about 400 kcal. Unless you went proper massive with it? Let me know if I'm miles off."
-2. PUSH BACK WHEN IT MATTERS: If they log something impossible to guess without context (e.g., "Had a takeaway"), give a straight-talking, low-friction pushback.
-   - Example: "Takeaway could mean a light kebab or a 2,000-calorie pizza session. Give me the quick headline so I don't completely butcher your data."
-3. When you assume portions, still populate calories/macros with your best baseline guess and note the assumption in flags (e.g., "Assumed standard UK sandwich").
+BRAND SEARCHING:
+- If a specific UK brand or product is mentioned, search for actual nutritional data before responding.
+- If search fails, fall back to a UK baseline estimate and flag it.
 
-BRAND-SPECIFIC SEARCHING & ACCURACY:
-1. LIVE SEARCH TRIGGER: If the user names a specific UK supermarket, restaurant, or brand (e.g., "Iceland hash browns", "Greggs sausage roll", "Tesco meal deal"), use your search tool immediately to find the exact nutritional information (calories and protein per item or per 100g). Do not guess when a specific brand is provided.
-2. NATURAL QUANTITY PUSHBACK: Once you have the brand data via search, if the user forgot to specify the amount, respond naturally by naming the product, stating your baseline assumption, and asking for the number of items using natural UK dialect.
-   - Proper UK Coach response: "Just looked up the Iceland hash browns, they're about 77 calories each. How many did you chuck in the air fryer? Let me know and I'll add them to your day."
-3. LOW FRICTION OVERRIDE: If the internet search fails or times out, fall back to a sensible UK baseline estimate immediately so the user isn't blocked. Flag the fallback in flags.
+PROFILE LEARNING:
+- If the user mentions the same food, habit, or behaviour that appears consistent with previous logs, add it to profile_updates.
+- Only update when reasonably confident it's a pattern, not a one-off.
+- Example: third chicken sandwich this week → profile_updates: { "usualLunch": "chicken sandwich" }
+- Medication by name → profile_updates: { "medicationMentioned": ["sertraline"] }
 
-MULTIMODAL CAPABILITIES (VISION & VOICE):
-1. IMAGE INPUTS: The user may send photos of food plates or nutritional labels. When an image is provided:
-   - Read calories, protein, carbs, and fats per 100g or per serving directly from the label when visible.
-   - Extract those metrics for the background logs, acknowledge what it is naturally, and keep the conversation moving without making them type it out.
-2. VOICE INPUTS: The user may speak via voice-to-text. Incoming text may be a messy, unstructured brain dump. Cut through filler, extract key health/fitness metrics, and reply with the same concise UK personality.
+BACKGROUND PARSING:
+- Extract health metrics silently. Return structured JSON alongside your conversational message.
+- Set should_log true only when you are confident enough to log without confirmation (typically confidence >= 0.7 on key metrics).
+- If unsure, ask a natural follow-up instead of logging.
+- Never let data extraction make the response feel clinical.`;
 
-COACHING BEHAVIOUR:
-- Never just say "Data saved." Treat every input as a conversation.
-- One relevant follow-up when it fits. Tie in profile goals naturally when relevant.
-- In the background, extract health/fitness metrics for logs without sounding clinical.
-
-Example:
-User: "Just had some toast."
-Coach: "Logged two slices with butter at roughly 250 kcal. Unless it was a doorstop from the café? Shout if I'm miles off."`;
-
-export interface CoachImageInput {
-  mimeType: "image/jpeg" | "image/png" | "image/webp";
-  data: string;
-}
-
-export interface CoachGeminiRequestOptions {
-  images?: CoachImageInput[];
+export interface CoachChatContext {
+  profile: PulseProfile | null;
+  dailyTotals: DailyTotals;
+  chatHistory: ChatMessage[];
+  now?: Date;
   fromVoice?: boolean;
+  imageContext?: string;
 }
 
-export function buildCoachLogUserPrompt(
-  profileContext: string,
-  userInput: string,
-  options: CoachGeminiRequestOptions = {}
-): string {
-  const modalityNotes: string[] = [];
-  if (options.images?.length) {
-    modalityNotes.push(
-      "One or more food or label images are attached. Read visible nutritional data from labels and estimate the logged portion where needed."
-    );
+function formatDailySummary(totals: DailyTotals): string {
+  return `Today so far: ${totals.calories} kcal, ${totals.protein_g}g protein, ${totals.water_ml}ml water, ${totals.alcohol_units} alcohol units, ${totals.steps} steps.`;
+}
+
+function formatChatHistory(history: ChatMessage[]): string {
+  const recent = history.slice(-10);
+  if (!recent.length) return "No prior messages today.";
+  return recent
+    .map((m) => `${m.role === "user" ? "User" : "Coach"}: ${m.text}`)
+    .join("\n");
+}
+
+export function buildChatUserPrompt(input: string, ctx: CoachChatContext): string {
+  const now = ctx.now ?? new Date();
+  const notes: string[] = [
+    `Current date/time: ${now.toLocaleString("en-GB")}`,
+    formatDailySummary(ctx.dailyTotals),
+    "",
+    "USER PROFILE:",
+    buildProfileContextSummary(ctx.profile) || "No profile yet.",
+    "",
+    "RECENT CHAT:",
+    formatChatHistory(ctx.chatHistory),
+  ];
+  if (ctx.fromVoice) {
+    notes.push("", "Note: message arrived via voice-to-text, may be messy.");
   }
-  if (options.fromVoice) {
-    modalityNotes.push(
-      "This message arrived via voice-to-text and may include filler words or messy phrasing. Extract the intent and metrics anyway."
-    );
+  if (ctx.imageContext) {
+    notes.push("", `Image context: ${ctx.imageContext}`);
   }
 
-  return `${profileContext}
-${modalityNotes.length ? `\n${modalityNotes.join("\n")}\n` : ""}
-The user just sent this message in the Log tab brain dump:
+  return `${notes.join("\n")}
 
-"${userInput}"
+User message: "${input}"
 
-Return ONLY valid JSON (no markdown fences) with this exact shape:
+Return ONLY valid JSON (no markdown fences):
 {
-  "coachReply": "Your UK-voiced coach reply. Use guess-and-check for vague food. One quick correction invite when you assumed portions.",
-  "calories": number|null,
-  "protein_g": number|null,
-  "carbs_g": number|null,
-  "fat_g": number|null,
-  "water_ml": number|null,
-  "alcohol_units": number|null,
-  "medication_taken": boolean|null,
-  "steps": number|null,
-  "items": [],
-  "confidence": {"calories":0-1,"protein":0-1,"carbs":0-1,"fat":0-1},
-  "flags": [],
-  "notes": ""
+  "message": "your conversational coach reply, 1-4 short sentences",
+  "parsed": {
+    "calories": number|null,
+    "protein_g": number|null,
+    "carbs_g": number|null,
+    "fat_g": number|null,
+    "water_ml": number|null,
+    "alcohol_units": number|null,
+    "medication_taken": boolean|null,
+    "steps": number|null,
+    "items": [],
+    "confidence": {"calories":0-1,"protein":0-1,"carbs":0-1,"fat":0-1},
+    "flags": [],
+    "notes": ""
+  },
+  "profile_updates": {},
+  "should_log": boolean
 }
 
-Parsing rules:
-- Put your conversational reply in coachReply only. Do not repeat the JSON in coachReply.
-- coachReply must obey all linguistic constraints and UK phrasing benchmarks above.
-- For named UK brands or products, search first for exact nutrition. Do not guess brand-specific numbers.
-- If brand data is found but quantity is missing, log one item as baseline if reasonable, or leave metrics null and ask how many in natural UK phrasing.
-- If search fails, fall back to a UK baseline estimate and flag it. Never leave the user blocked.
-- For vague unbranded food, assume a sensible UK baseline, fill in metrics with moderate confidence, and invite a quick correction in coachReply.
-- For impossible-to-guess meals (e.g. generic takeaway), keep metrics null and push back once in coachReply.
-- Reference Open Food Facts, NHS, or official UK retailer nutrition pages when estimating. Do not cite USDA or US portion norms.
-- Flag assumptions, search fallbacks, or ambiguity in flags.
-- UK alcohol units. Medication only if explicitly named.
-- Mood-only or non-log messages: null metrics, still give a real coachReply.`;
+Rules:
+- message obeys all style rules. No AI pleasantries.
+- should_log true only when confident. Otherwise false and ask in message.
+- profile_updates only for clear patterns. Empty object if none.`;
 }
 
-type GeminiContentPart =
-  | { text: string }
-  | { inlineData: { mimeType: string; data: string } };
+export function buildWelcomePrompt(profile: PulseProfile): string {
+  return `Generate a short opening message from a straight-talking UK health coach (North East England).
 
-export function buildCoachGeminiRequest(
-  profileContext: string,
-  userInput: string,
-  options: CoachGeminiRequestOptions = {}
-) {
-  const parts: GeminiContentPart[] = [];
+User name: ${profile.name}
+Where they are now: "${profile.currentSituation}"
+Where they want to be: "${profile.goal}"
+Timeline: ${profile.timeline} months, effort level ${profile.effortLevel}/4
 
-  for (const image of options.images ?? []) {
-    parts.push({
-      inlineData: {
-        mimeType: image.mimeType,
-        data: image.data,
-      },
-    });
+Rules:
+- 2-3 sentences max.
+- Reference something SPECIFIC from what they wrote. Do not be generic.
+- No "Great to meet you", no AI pleasantries, no exclamation overload.
+- Sound like a mate who's read what they wrote and has something to say.
+- UK English, no em dashes.
+
+Return ONLY valid JSON: { "message": "..." }`;
+}
+
+export function buildExtractProfilePrompt(
+  currentSituation: string,
+  goal: string
+): string {
+  return `Extract structured health profile data from these two brain dumps. UK user.
+
+CURRENT SITUATION:
+"${currentSituation}"
+
+GOAL:
+"${goal}"
+
+Return ONLY valid JSON:
+{
+  "extracted": {
+    "currentWeight": number|null,
+    "targetWeight": number|null,
+    "currentBodyFat": number|null,
+    "targetBodyFat": number|null,
+    "activityLevel": string|null,
+    "sport": string|null,
+    "drinkingHabit": string|null,
+    "sleepQuality": string|null,
+    "stressLevel": string|null,
+    "medication": string[]|null,
+    "supplements": string[]|null,
+    "dietStyle": string|null,
+    "typicalMeals": { "breakfast": string|null, "lunch": string|null, "dinner": string|null, "snacks": string|null },
+    "avoidFoods": string[]|null,
+    "otherNotes": string|null
+  },
+  "targets": {
+    "calories": number|null,
+    "protein_g": number|null,
+    "carbs_g": number|null,
+    "fat_g": number|null,
+    "water_ml": number|null,
+    "steps": number|null
   }
+}
 
-  parts.push({
-    text: buildCoachLogUserPrompt(profileContext, userInput, options),
-  });
+Only include values clearly stated or strongly implied. Use null when unknown.`;
+}
 
+export function buildMilestonesPrompt(profile: PulseProfile): string {
+  const ex = profile.extracted;
+  return `Generate realistic goal milestones for a UK fitness user.
+
+Goal text: "${profile.goal}"
+Timeline: ${profile.timeline} months
+Effort level: ${profile.effortLevel}/4 (1=just looking, 4=no excuses)
+Current weight: ${ex.currentWeight ?? "unknown"} kg
+Target weight: ${ex.targetWeight ?? "unknown"} kg
+Current body fat: ${ex.currentBodyFat ?? "unknown"}%
+Target body fat: ${ex.targetBodyFat ?? "unknown"}%
+
+Return ONLY valid JSON:
+{
+  "targets": [
+    { "metric": "body_fat_percentage", "current": number, "target": number, "unit": "%" }
+  ],
+  "milestones": [
+    {
+      "label": "Week 1",
+      "date": "ISO date string",
+      "projectedBodyFat": number|null,
+      "projectedWeight": number|null,
+      "description": "one plain English sentence"
+    }
+  ],
+  "coachComment": "one sentence on their journey"
+}
+
+Include 5-8 milestones spread across the timeline. Be realistic for the effort level. Use ISO dates from today forward.`;
+}
+
+export function buildCoachGeminiBody(
+  userPrompt: string,
+  options: { json?: boolean; temperature?: number; maxTokens?: number } = {}
+) {
   return {
-    systemInstruction: {
-      parts: [{ text: COACH_SYSTEM_PROMPT }],
-    },
-    contents: [{ parts }],
+    systemInstruction: { parts: [{ text: COACH_SYSTEM_PROMPT }] },
+    contents: [{ parts: [{ text: userPrompt }] }],
     tools: [
       {
         google_search_retrieval: {
@@ -150,32 +227,72 @@ export function buildCoachGeminiRequest(
       },
     ],
     generationConfig: {
-      temperature: 0.65,
-      maxOutputTokens: 1200,
-      responseMimeType: "application/json",
+      temperature: options.temperature ?? 0.65,
+      maxOutputTokens: options.maxTokens ?? 1200,
+      ...(options.json !== false ? { responseMimeType: "application/json" } : {}),
     },
   };
 }
 
-export async function readCoachImageFile(file: File): Promise<CoachImageInput> {
-  const mimeType = file.type;
-  if (
-    mimeType !== "image/jpeg" &&
-    mimeType !== "image/png" &&
-    mimeType !== "image/webp"
-  ) {
-    throw new Error("Use a JPEG, PNG, or WebP image.");
-  }
+export function buildChatGeminiRequest(input: string, ctx: CoachChatContext) {
+  return buildCoachGeminiBody(buildChatUserPrompt(input, ctx));
+}
 
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Could not read image file."));
-    reader.readAsDataURL(file);
-  });
+export function shouldAutoLog(parsed: ParsedNutrition): boolean {
+  const conf = parsed.confidence ?? {};
+  const metrics = [
+    parsed.calories != null && (conf.calories ?? 0) >= 0.7,
+    parsed.protein_g != null && (conf.protein ?? 0) >= 0.7,
+    parsed.water_ml != null,
+    parsed.alcohol_units != null,
+    parsed.medication_taken === true,
+    parsed.steps != null,
+  ];
+  return metrics.some(Boolean);
+}
 
-  const base64 = dataUrl.split(",")[1];
-  if (!base64) throw new Error("Could not read image file.");
+export function normaliseCoachResponse(raw: Record<string, unknown>): {
+  message: string;
+  parsed: ParsedNutrition;
+  profile_updates?: Partial<PulseProfileLearned>;
+  should_log: boolean;
+} {
+  const message =
+    (typeof raw.message === "string" && raw.message) ||
+    (typeof raw.coachReply === "string" && raw.coachReply) ||
+    "";
 
-  return { mimeType, data: base64 };
+  const nested =
+    raw.parsed && typeof raw.parsed === "object"
+      ? (raw.parsed as Record<string, unknown>)
+      : raw;
+
+  const parsed: ParsedNutrition = {
+    calories: (nested.calories as number | null) ?? null,
+    protein_g: (nested.protein_g as number | null) ?? null,
+    carbs_g: (nested.carbs_g as number | null) ?? null,
+    fat_g: (nested.fat_g as number | null) ?? null,
+    water_ml: (nested.water_ml as number | null) ?? null,
+    alcohol_units: (nested.alcohol_units as number | null) ?? null,
+    medication_taken: (nested.medication_taken as boolean | null) ?? null,
+    steps: (nested.steps as number | null) ?? null,
+    items: (nested.items as unknown[]) ?? [],
+    confidence: (nested.confidence as ParsedNutrition["confidence"]) ?? {},
+    flags: (nested.flags as string[]) ?? [],
+    notes: (typeof nested.notes === "string" && nested.notes) || "",
+  };
+
+  const profile_updates =
+    raw.profile_updates && typeof raw.profile_updates === "object"
+      ? (raw.profile_updates as Partial<PulseProfileLearned>)
+      : undefined;
+
+  const should_log =
+    raw.should_log === true || (raw.should_log !== false && shouldAutoLog(parsed));
+
+  return { message, parsed, profile_updates, should_log };
+}
+
+export function parseJsonText(text: string): Record<string, unknown> {
+  return JSON.parse(text.replace(/```json|```/g, "").trim()) as Record<string, unknown>;
 }
