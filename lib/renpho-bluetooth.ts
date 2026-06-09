@@ -1,6 +1,6 @@
 /**
  * Renpho QN-Scale / Yolanda protocol (ES-26M).
- * On this firmware FFE1 is typically notify + write on service FFE0.
+ * FFE1 is notify-only; writes go to FFE3, FFE4, or FFE5 on service FFE0.
  */
 
 export const WEIGHT_MEASUREMENT_SERVICE_T1 =
@@ -11,6 +11,20 @@ export const AE00_SERVICE = "0000ae00-0000-1000-8000-00805f9b34fb";
 
 export const CUSTOM1_MEASUREMENT_CHARACTERISTIC =
   "0000ffe1-0000-1000-8000-00805f9b34fb";
+export const CUSTOM3_MEASUREMENT_CHARACTERISTIC =
+  "0000ffe3-0000-1000-8000-00805f9b34fb";
+export const CUSTOM4_MEASUREMENT_CHARACTERISTIC =
+  "0000ffe4-0000-1000-8000-00805f9b34fb";
+export const CUSTOM5_CONTROL_CHARACTERISTIC =
+  "0000ffe5-0000-1000-8000-00805f9b34fb";
+
+const WRITE_CHAR_PRIORITY = [
+  CUSTOM3_MEASUREMENT_CHARACTERISTIC,
+  CUSTOM4_MEASUREMENT_CHARACTERISTIC,
+  CUSTOM5_CONTROL_CHARACTERISTIC,
+];
+
+const SCALE_INFO_FRAME_LENGTH = 15;
 
 const YOLANDA_WEIGHT_DIVISOR = 10;
 const READING_TIMEOUT_MS = 60_000;
@@ -137,6 +151,27 @@ function buildWeightOnlyComposition(
   };
 }
 
+async function resolveWriteCharacteristic(
+  service: BluetoothRemoteGATTService,
+  logDebug: RenphoDebugLogFn
+): Promise<BluetoothRemoteGATTCharacteristic | null> {
+  for (const uuid of WRITE_CHAR_PRIORITY) {
+    try {
+      const characteristic = await service.getCharacteristic(uuid);
+      if (
+        characteristic.properties.write ||
+        characteristic.properties.writeWithoutResponse
+      ) {
+        logRenphoDebug(logDebug, `[Renpho] Using write characteristic: ${uuid}`);
+        return characteristic;
+      }
+    } catch {
+      // characteristic not available on this firmware
+    }
+  }
+  return null;
+}
+
 async function enumerateServiceCharacteristics(
   service: BluetoothRemoteGATTService,
   label: string,
@@ -229,7 +264,7 @@ export async function connectRenphoScale(
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let device: BluetoothDevice | undefined;
   let ffe1: BluetoothRemoteGATTCharacteristic | undefined;
-  let writeChar: BluetoothRemoteGATTCharacteristic | undefined;
+  let writeChar: BluetoothRemoteGATTCharacteristic | null = null;
   let lastStableWeight = 0;
 
   const clearReadingTimeout = () => {
@@ -272,16 +307,14 @@ export async function connectRenphoScale(
     disconnectScale();
   };
 
-  const handleYolandaReady = async () => {
+  const handleHandshakeResponse = async (logMessage: string) => {
     if (!writeChar) return;
-    logRenphoDebug(
-      logDebug,
-      "[Renpho] 0x14 received — Yolanda protocol, sending profile to FFE1"
-    );
+    logRenphoDebug(logDebug, logMessage);
+    await writeToChar(writeChar, new Uint8Array([0xae, 0x01]), "AE01 init", logDebug);
     await writeToChar(
       writeChar,
       buildUserProfilePacket(userProfile),
-      "0x13 Yolanda profile",
+      "0x13 user config",
       logDebug
     );
     await writeToChar(writeChar, buildTimeSyncPacket(), "0x02 time sync", logDebug);
@@ -298,15 +331,30 @@ export async function connectRenphoScale(
     const opcode = data[0];
 
     if (opcode === 0x14) {
-      void handleYolandaReady();
+      void handleHandshakeResponse(
+        "[Renpho] 0x14 received — sending AE01 init + user config"
+      );
       return;
     }
 
-    if (opcode === 0x15 || opcode === 0x12) {
-      if (opcode === 0x12 && data.length >= 18 && data[1] === data.length) {
-        logRenphoDebug(logDebug, "[Renpho] Long 0x12 scale info frame (ignored)");
+    if (opcode === 0x12) {
+      if (data.length === SCALE_INFO_FRAME_LENGTH) {
+        void handleHandshakeResponse(
+          "[Renpho] 0x12 scale info received — sending AE01 init + user config"
+        );
         return;
       }
+
+      const weightKg = decodeYolandaWeight(data);
+      if (weightKg !== null) {
+        lastStableWeight = weightKg;
+        logRenphoDebug(logDebug, `[Renpho] 0x12 weight frame: ${weightKg}kg`);
+        onStatus("reading");
+      }
+      return;
+    }
+
+    if (opcode === 0x15) {
       const weightKg = decodeYolandaWeight(data);
       if (weightKg !== null) {
         lastStableWeight = weightKg;
@@ -374,8 +422,11 @@ export async function connectRenphoScale(
       `[Renpho] FFE1 properties: write=${ffe1.properties.write} writeWithoutResponse=${ffe1.properties.writeWithoutResponse} notify=${ffe1.properties.notify}`
     );
 
-    writeChar = ffe1;
-    logRenphoDebug(logDebug, `[Renpho] Using writable characteristic: ${writeChar.uuid}`);
+    writeChar = await resolveWriteCharacteristic(vendorService, logDebug);
+    if (!writeChar) {
+      finishWithError("No writable characteristic found on this scale firmware.");
+      return;
+    }
 
     onStatus("reading");
 
