@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   getProfile, saveProfile, isOnboarded, setOnboarded,
+  createAccount, hasAccount, setUnlocked,
   addLog, deleteLog, getLogs, getDailyTotals, computeWellnessScore,
   addActivity, addMeasurement, getLatestMeasurement,
   getActivities, getWeekHistory, getWeeklyStats,
@@ -380,9 +381,19 @@ function Onboarding({ onComplete }) {
       waterTarget: "3000",
       stepsTarget: "10000",
     };
+    // DEBUG — also create a dummy account to skip PIN lock
+    if (!hasAccount()) {
+      createAccount("Lewis", "0000");
+    }
+    try {
+      localStorage.setItem("pulse_session_unlocked", "true");
+    } catch {
+      // ignore storage errors in private mode
+    }
+    setUnlocked(true);
     saveProfile(profile);
     setOnboarded(true);
-    window.location.reload();
+    onComplete(profile);
   };
 
   const calcBIA = (weight, impedance, age, heightCm, isMale) => {

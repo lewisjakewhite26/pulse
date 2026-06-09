@@ -246,6 +246,18 @@ export async function connectRenphoScale(
     disconnectScale();
   };
 
+  const sendProfileOn12 = async () => {
+    if (!writeChar || profileSent) return;
+    profileSent = true;
+    logRenphoDebug(logDebug, "[Renpho] 0x12 — sending profile to FFE3");
+    const packet = buildProfilePacket(isMale, age, height, DEFAULT_ALGORITHM);
+    const hex = Array.from(packet)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(" ");
+    logRenphoDebug(logDebug, `[Renpho] Profile packet: ${hex}`);
+    await writeToChar(writeChar, packet, "0x13 user profile", logDebug);
+  };
+
   const handleNotification = (event: Event) => {
     const target = event.target as BluetoothRemoteGATTCharacteristic;
     if (!target.value || completed) return;
@@ -257,7 +269,14 @@ export async function connectRenphoScale(
     const opcode = data[0];
 
     if (opcode === 0x12) {
-      logRenphoDebug(logDebug, "[Renpho] 0x12 idle broadcast (ignored)");
+      if (!profileSent) {
+        void sendProfileOn12();
+      } else {
+        logRenphoDebug(
+          logDebug,
+          "[Renpho] 0x12 subsequent broadcast (profile already sent, waiting for weight)"
+        );
+      }
       return;
     }
 

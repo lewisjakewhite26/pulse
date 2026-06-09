@@ -130,7 +130,16 @@ export function setLastSynced(): void {
 // ── Session ──────────────────────────────────────────────────────────────────
 
 export function isUnlocked(): boolean {
-  return unlockedInMemory;
+  if (unlockedInMemory) return true;
+  // DEBUG — remove before shipping
+  if (isBrowser()) {
+    try {
+      return localStorage.getItem("pulse_session_unlocked") === "true";
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export function setUnlocked(unlocked: boolean): void {
