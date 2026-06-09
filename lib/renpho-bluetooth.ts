@@ -80,28 +80,17 @@ function xorChecksum(bytes: number[]): number {
   return bytes.reduce((acc, value) => acc ^ value, 0);
 }
 
-function parseProfileNumbers(userProfile: RenphoUserProfile): {
-  isMale: boolean;
-  age: number;
-  heightCm: number;
-} {
-  const isMale = userProfile.sex !== "Female";
-  const age = Math.min(Math.max(parseInt(userProfile.age, 10) || 25, 10), 99);
-  const heightCm = Math.min(
-    Math.max(parseInt(userProfile.height, 10) || 170, 100),
-    220
-  );
-  return { isMale, age, heightCm };
-}
-
-function buildUserProfilePacket(userProfile: RenphoUserProfile): Uint8Array {
-  const { isMale, age, heightCm } = parseProfileNumbers(userProfile);
+function buildUserProfilePacket(): Uint8Array {
+  // DEBUG HARDCODED — remove once Renpho connection is working
+  const isMale = true;
+  const age = 34;
+  const height = 180;
   const profileBody = [
     0x13,
     0x00,
     isMale ? 0x01 : 0x00,
     age,
-    heightCm,
+    height,
     0x00,
     0x00,
   ];
@@ -248,9 +237,11 @@ export function isWebBluetoothAvailable(): boolean {
 export async function connectRenphoScale(
   params: ConnectRenphoParams
 ): Promise<void> {
-  const { userProfile, calcBIA, onStatus, onError, onReading, onDebugLog } =
-    params;
-  const { isMale, age, heightCm } = parseProfileNumbers(userProfile);
+  const { calcBIA, onStatus, onError, onReading, onDebugLog } = params;
+  // DEBUG HARDCODED — remove once Renpho connection is working
+  const isMale = true;
+  const age = 34;
+  const height = 180;
 
   const logDebug: RenphoDebugLogFn = (message) => {
     console.log(message); // DEBUG — remove after fix
@@ -299,8 +290,8 @@ export async function connectRenphoScale(
 
     const composition =
       impedance > 0
-        ? calcBIA(weight, impedance, age, heightCm, isMale)
-        : buildWeightOnlyComposition(weight, heightCm);
+        ? calcBIA(weight, impedance, age, height, isMale)
+        : buildWeightOnlyComposition(weight, height);
 
     onReading({ weight, impedance, composition });
     onStatus("done");
@@ -313,7 +304,7 @@ export async function connectRenphoScale(
     await writeToChar(writeChar, new Uint8Array([0xae, 0x01]), "AE01 init", logDebug);
     await writeToChar(
       writeChar,
-      buildUserProfilePacket(userProfile),
+      buildUserProfilePacket(),
       "0x13 user config",
       logDebug
     );
