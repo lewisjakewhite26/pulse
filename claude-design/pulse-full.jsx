@@ -14,6 +14,7 @@ import {
 } from "../lib/storage";
 import { parseActivityFile, stravaActivityToUpload } from "../lib/activity-parser";
 import { isStravaClientConfigured } from "../lib/strava-config";
+import { connectRenphoScale, isWebBluetoothAvailable } from "../lib/renpho-bluetooth";
 
 function isChromeAndroid() {
   if (typeof navigator === "undefined") return false;
@@ -303,36 +304,27 @@ function Onboarding({ onComplete }) {
   };
 
   const connectRenpho = async () => {
-    if (!navigator.bluetooth) { setScaleStatus("unsupported"); setManualEntry(true); return; }
-    setScaleStatus("scanning"); setScaleError(null);
-    try {
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: "QN-Scale" }],
-        optionalServices: ["0000ffe0-0000-1000-8000-00805f9b34fb"]
-      });
-      setScaleStatus("connected");
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService("0000ffe0-0000-1000-8000-00805f9b34fb");
-      const char = await service.getCharacteristic("0000ffe1-0000-1000-8000-00805f9b34fb");
-      setScaleStatus("reading");
-      await char.startNotifications();
-      char.addEventListener("characteristicvaluechanged", e => {
-        const d = new Uint8Array(e.target.value.buffer);
-        if (d.length >= 11 && d[0] === 0x10) {
-          const weight = ((d[3] & 0xFF) << 8 | (d[4] & 0xFF)) / 100;
-          const impedance = ((d[9] & 0xFF) << 8 | (d[10] & 0xFF));
-          if (weight > 20 && impedance > 0) {
-            const bia = calcBIA(weight, impedance, ageFromDob(p.dob) || 28, parseInt(p.height) || 175, p.sex !== "Female");
-            setP(prev => ({ ...prev, weight: String(Math.round(weight * 10) / 10), bodyFat: bia.bodyFat, muscleMass: bia.muscleMass }));
-            setScaleStatus("done"); setManualEntry(true);
-            try { char.stopNotifications(); device.gatt.disconnect(); } catch {}
-          }
-        }
-      });
-    } catch (err) {
-      if (err.name !== "NotFoundError") { setScaleError(err.message || "Connection failed"); setScaleStatus("error"); setManualEntry(true); }
-      else setScaleStatus("idle");
-    }
+    if (!isWebBluetoothAvailable()) { setScaleStatus("unsupported"); setManualEntry(true); return; }
+    await connectRenphoScale({
+      age: ageFromDob(p.dob) || 28,
+      heightCm: parseInt(p.height) || 175,
+      isMale: p.sex !== "Female",
+      calcBIA,
+      onStatus: setScaleStatus,
+      onError: (message) => {
+        setScaleError(message);
+        if (message) setManualEntry(true);
+      },
+      onReading: ({ weight, composition }) => {
+        setP(prev => ({
+          ...prev,
+          weight: String(Math.round(weight * 10) / 10),
+          bodyFat: composition.bodyFat,
+          muscleMass: composition.muscleMass,
+        }));
+        setManualEntry(true);
+      },
+    });
   };
 
   const analyseWithGemini = async () => {
@@ -1090,32 +1082,28 @@ export default function Pulse() {
   };
 
   const connectRenpho = async () => {
-    if (!navigator.bluetooth) { setScaleError("Web Bluetooth not supported. Use Chrome on Android."); setScaleStatus("error"); return; }
-    setScaleStatus("scanning"); setScaleError(null); setScaleMeasurement(null);
-    try {
-      const device = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: "QN-Scale" }], optionalServices: ["0000ffe0-0000-1000-8000-00805f9b34fb"] });
-      setScaleStatus("connected");
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService("0000ffe0-0000-1000-8000-00805f9b34fb");
-      const char = await service.getCharacteristic("0000ffe1-0000-1000-8000-00805f9b34fb");
-      setScaleStatus("reading");
-      await char.startNotifications();
-      char.addEventListener("characteristicvaluechanged", e => {
-        const d = new Uint8Array(e.target.value.buffer);
-        if (d.length >= 11 && d[0] === 0x10) {
-          const weight = ((d[3] & 0xFF) << 8 | (d[4] & 0xFF)) / 100;
-          const impedance = ((d[9] & 0xFF) << 8 | (d[10] & 0xFF));
-          if (weight > 20 && impedance > 0) {
-            setScaleMeasurement({ weight, impedance, ...calcBIA(weight, impedance, profileAge(profile) || 30, parseInt(profile.height) || 175, profile.sex !== "Female"), time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) });
-            setScaleStatus("done");
-            try { char.stopNotifications(); device.gatt.disconnect(); } catch {}
-          }
-        }
-      });
-    } catch (err) {
-      if (err.name !== "NotFoundError") { setScaleError(err.message || "Connection failed"); setScaleStatus("error"); }
-      else setScaleStatus("idle");
+    if (!isWebBluetoothAvailable()) {
+      setScaleError("Web Bluetooth not supported. Use Chrome on Android.");
+      setScaleStatus("error");
+      return;
     }
+    setScaleMeasurement(null);
+    await connectRenphoScale({
+      age: profileAge(profile) || 30,
+      heightCm: parseInt(profile.height) || 175,
+      isMale: profile.sex !== "Female",
+      calcBIA,
+      onStatus: setScaleStatus,
+      onError: setScaleError,
+      onReading: ({ weight, impedance, composition }) => {
+        setScaleMeasurement({
+          weight,
+          impedance,
+          ...composition,
+          time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+        });
+      },
+    });
   };
 
   const wData = weightPoints.map(h => h.weight);
