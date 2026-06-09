@@ -29,27 +29,12 @@
 
 ## Known gaps
 
-- [ ] **Strava credentials** not configured in `lib/strava-config.ts`
-- [ ] **Garmin FIT binary test** with a real `.FIT` file (GPX/TCX/CSV covered by `npm test`)
+- [ ] Test Garmin upload with a real `.FIT` file exported from Garmin Connect app
 - [ ] **Scheduled 10pm sync** verify on a real device
 - [ ] **Notifications** feature not implemented (sync chip replaced the bell icon)
-- [ ] Optional: include Strava tokens in backup export/import
+- [ ] Strava Connect button in Activity tab is visible but non-functional. Consider hiding it until credentials are configured (code stays, UI hidden)
 - [ ] Optional: run `npm audit` and review `next-pwa` dependency vulnerabilities
 - [ ] Optional: scrub old Gemini key from Git history (revoked in Google Studio; still visible in commit `0a888ae`)
-
----
-
-## Future — when shipping to others
-
-### Strava integration (code already built, credentials not configured)
-- [ ] Sign up for Strava Standard Tier developer subscription ($11.99/month)
-- [ ] Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create the app
-- [ ] Set callback domain to your production Vercel URL
-- [ ] Add `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` to Vercel environment variables
-- [ ] Paste credentials into `lib/strava-config.ts`
-- [ ] Test: Activity tab → Connect Strava → approve → sync recent activities
-- [ ] When user base grows past 10, submit app for Strava review to scale to 9,999 users
-- [ ] At 10,000+ users, apply for Extended Access Tier (no subscription required at that scale)
 
 ---
 
@@ -89,3 +74,17 @@
 - Garmin file parsing (FIT, GPX, TCX, CSV) + Strava OAuth routes
 - PWA (manifest, icons, service worker)
 - Automated tests (`npm test`)
+
+---
+
+## Future — when shipping to others
+
+### Strava integration (OAuth code already built, credentials not configured)
+- [ ] Sign up for Strava Standard Tier developer subscription ($11.99/month)
+- [ ] Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create the app
+- [ ] Set callback domain to your production Vercel URL
+- [ ] Add `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` to Vercel environment variables
+- [ ] Paste credentials into `lib/strava-config.ts`
+- [ ] Test: Activity tab → Connect Strava → approve → sync recent activities
+- [ ] When user base grows past 10, submit for Strava review to scale to 9,999 users
+- [ ] At 10,000+ users, apply for Extended Access Tier (no subscription fee at that scale)
