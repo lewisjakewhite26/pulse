@@ -2,6 +2,13 @@
 
 ## Setup (do when ready)
 
+### Gemini API key
+- [ ] Create a key at [Google AI Studio](https://aistudio.google.com/apikey)
+- [ ] **Rotate the old key** if it was ever committed to GitHub (the previous hardcoded key is compromised)
+- [ ] Local dev: copy `.env.example` to `.env.local` and set `GEMINI_API_KEY=your_key`
+- [ ] Vercel: Project → Settings → Environment Variables → add `GEMINI_API_KEY` for Production (and Preview if needed)
+- [ ] Redeploy after adding the variable
+
 ### Strava API credentials
 - [ ] Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create an app
 - [ ] Set **Authorization Callback Domain** to `localhost` (dev) or your deployed host

@@ -16,6 +16,7 @@ public/worker-*.js
 public/worker-*.js.map
 
 # env
+.env
 .env*.local
 
 # debug
