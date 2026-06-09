@@ -1,7 +1,6 @@
 /**
- * Renpho ES-26M / ES-CS20M BLE protocol (QN-Scale).
- * Based on renpho-escs20m: wait for 0x21 profile request when user steps on,
- * reply on FFE3, decode stable 0x10 frames (weight ÷100, impedance bytes 7-8).
+ * Renpho ES-26M / Qingniu QN-Scale BLE protocol.
+ * 3-step handshake: unit init (0x13) -> time sync on 0x14 (0x1d) -> weight (0x10).
  */
 
 export const WEIGHT_MEASUREMENT_SERVICE_T1 =
@@ -13,7 +12,11 @@ export const CUSTOM3_MEASUREMENT_CHARACTERISTIC =
 
 const WEIGHT_SCALE_FACTOR = 100;
 const READING_TIMEOUT_MS = 90_000;
-const DEFAULT_ALGORITHM = 0x04;
+const Y2K_EPOCH_MS = Date.UTC(2000, 0, 1);
+
+const UNIT_INIT_PAYLOAD = [0x13, 0x09, 0x15, 0x01, 0x10, 0x00, 0x00, 0x00];
+
+type ProtocolState = "INIT" | "TIME_SYNC" | "AWAITING_WEIGHT";
 
 /** DEBUG — remove after fix */
 export type RenphoDebugLogFn = (message: string) => void;
@@ -62,26 +65,57 @@ function logRenphoDebug(logDebug: RenphoDebugLogFn, message: string): void {
   logDebug(message);
 }
 
-function xorChecksum(bytes: number[]): number {
-  return bytes.reduce((acc, value) => acc ^ value, 0);
+function buildSummationPacket(payload: number[]): Uint8Array {
+  const packet = new Uint8Array(payload.length + 1);
+  let sum = 0;
+  for (let i = 0; i < payload.length; i++) {
+    packet[i] = payload[i];
+    sum += payload[i];
+  }
+  packet[payload.length] = sum & 0xff;
+  return packet;
 }
 
-function buildProfilePacket(
-  isMale: boolean,
-  age: number,
-  heightCm: number,
-  algorithm: number = DEFAULT_ALGORITHM
-): Uint8Array {
-  const profileBody = [
-    0x13,
-    0x00,
-    isMale ? 0x01 : 0x00,
-    age,
-    heightCm,
-    0x00,
-    algorithm,
+async function sendVerifiedPacket(
+  characteristic: BluetoothRemoteGATTCharacteristic,
+  payload: number[],
+  logDebug: RenphoDebugLogFn
+): Promise<boolean> {
+  try {
+    const packet = buildSummationPacket(payload);
+    const hex = Array.from(packet)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join(" ");
+    logRenphoDebug(logDebug, `[Renpho] Outbound packet: ${hex}`);
+
+    if (characteristic.properties.writeWithoutResponse) {
+      await characteristic.writeValueWithoutResponse(packet);
+    } else if (characteristic.properties.write) {
+      await characteristic.writeValueWithResponse(packet);
+    } else {
+      logRenphoDebug(logDebug, "[Renpho] Write characteristic has no write property");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    logRenphoDebug(logDebug, `[Renpho] Outbound packet failed: ${String(err)}`);
+    return false;
+  }
+}
+
+function y2kEpochBytes(): number[] {
+  const y2kOffset = Math.floor((Date.now() - Y2K_EPOCH_MS) / 1000);
+  return [
+    y2kOffset & 0xff,
+    (y2kOffset >> 8) & 0xff,
+    (y2kOffset >> 16) & 0xff,
+    (y2kOffset >> 24) & 0xff,
   ];
-  return new Uint8Array([...profileBody, xorChecksum(profileBody)]);
+}
+
+function buildTimeSyncPayload(): number[] {
+  const tBytes = y2kEpochBytes();
+  return [0x1d, 0x09, 0x15, tBytes[0], tBytes[1], tBytes[2], tBytes[3], 0x00];
 }
 
 function decodeWeightKg(data: Uint8Array): number | null {
@@ -140,35 +174,6 @@ async function enumerateServiceCharacteristics(
   }
 }
 
-async function writeToChar(
-  characteristic: BluetoothRemoteGATTCharacteristic,
-  data: Uint8Array,
-  label: string,
-  logDebug: RenphoDebugLogFn
-): Promise<boolean> {
-  try {
-    if (characteristic.properties.writeWithoutResponse) {
-      await characteristic.writeValueWithoutResponse(data);
-    } else if (characteristic.properties.write) {
-      await characteristic.writeValueWithResponse(data);
-    } else {
-      logRenphoDebug(
-        logDebug,
-        `[Renpho] Cannot write ${label} — ${characteristic.uuid} has no write property`
-      );
-      return false;
-    }
-    const hex = Array.from(data)
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join(" ");
-    logRenphoDebug(logDebug, `[Renpho] Wrote ${label}: ${hex}`);
-    return true;
-  } catch (err) {
-    logRenphoDebug(logDebug, `[Renpho] Failed to write ${label}: ${String(err)}`);
-    return false;
-  }
-}
-
 /** DEBUG — remove after fix */
 function debugLogFrame(logDebug: RenphoDebugLogFn, data: Uint8Array): void {
   const hex = Array.from(data)
@@ -203,7 +208,7 @@ export async function connectRenphoScale(
   let device: BluetoothDevice | undefined;
   let notifyChar: BluetoothRemoteGATTCharacteristic | undefined;
   let writeChar: BluetoothRemoteGATTCharacteristic | null = null;
-  let profileSent = false;
+  let protocolState: ProtocolState = "INIT";
   let lastStableWeight = 0;
 
   const clearReadingTimeout = () => {
@@ -246,16 +251,64 @@ export async function connectRenphoScale(
     disconnectScale();
   };
 
-  const sendProfileOn12 = async () => {
-    if (!writeChar || profileSent) return;
-    profileSent = true;
-    logRenphoDebug(logDebug, "[Renpho] 0x12 — sending profile to FFE3");
-    const packet = buildProfilePacket(isMale, age, height, DEFAULT_ALGORITHM);
-    const hex = Array.from(packet)
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join(" ");
-    logRenphoDebug(logDebug, `[Renpho] Profile packet: ${hex}`);
-    await writeToChar(writeChar, packet, "0x13 user profile", logDebug);
+  const sendUnitInit = async (label: string) => {
+    if (!writeChar) return;
+    logRenphoDebug(logDebug, label);
+    await sendVerifiedPacket(writeChar, UNIT_INIT_PAYLOAD, logDebug);
+  };
+
+  const handleFrame = async (data: Uint8Array) => {
+    if (completed || !writeChar) return;
+    const opcode = data[0];
+
+    if (opcode === 0x12) {
+      if (protocolState === "INIT") {
+        await sendUnitInit(
+          "[Renpho] Received 0x12 loop. Re-asserting unit init handshake..."
+        );
+      } else {
+        logRenphoDebug(
+          logDebug,
+          `[Renpho] Scale broadcasted 0x12 while in state: ${protocolState}. Waiting for transition.`
+        );
+      }
+      return;
+    }
+
+    if (opcode === 0x14) {
+      if (protocolState === "INIT") {
+        logRenphoDebug(
+          logDebug,
+          "[Renpho] Handshake step 1 passed (got 0x14). Sending epoch time sync..."
+        );
+        protocolState = "TIME_SYNC";
+        await sendVerifiedPacket(writeChar, buildTimeSyncPayload(), logDebug);
+        protocolState = "AWAITING_WEIGHT";
+        logRenphoDebug(
+          logDebug,
+          "[Renpho] Handshake complete. Scale ready for weight frames."
+        );
+      }
+      return;
+    }
+
+    if (opcode === 0x10 && data.length >= 6) {
+      const weightKg = decodeWeightKg(data);
+      if (weightKg === null) return;
+
+      const isStable = data[5] === 0x01;
+      logRenphoDebug(
+        logDebug,
+        `[Renpho] Weight update: ${weightKg}kg | Stable: ${isStable}`
+      );
+
+      if (isStable) {
+        const impedance = decodeImpedance(data);
+        finishWithReading(weightKg, impedance);
+      } else {
+        lastStableWeight = weightKg;
+      }
+    }
   };
 
   const handleNotification = (event: Event) => {
@@ -265,49 +318,7 @@ export async function connectRenphoScale(
     const data = new Uint8Array(target.value.buffer);
     debugLogFrame(logDebug, data);
     if (data.length < 1) return;
-
-    const opcode = data[0];
-
-    if (opcode === 0x12) {
-      if (!profileSent) {
-        void sendProfileOn12();
-      } else {
-        logRenphoDebug(
-          logDebug,
-          "[Renpho] 0x12 subsequent broadcast (profile already sent, waiting for weight)"
-        );
-      }
-      return;
-    }
-
-    if (opcode === 0x21 && !profileSent && writeChar) {
-      profileSent = true;
-      logRenphoDebug(logDebug, "[Renpho] 0x21 profile request — sending user profile");
-      const packet = buildProfilePacket(isMale, age, height, DEFAULT_ALGORITHM);
-      void writeToChar(writeChar, packet, "0x13 user profile", logDebug);
-      return;
-    }
-
-    if (opcode === 0x20 && data.length >= 5) {
-      const weightKg = decodeWeightKg(data);
-      if (weightKg !== null) {
-        lastStableWeight = weightKg;
-        logRenphoDebug(logDebug, `[Renpho] 0x20 unstable weight: ${weightKg}kg`);
-      }
-      return;
-    }
-
-    if (opcode === 0x10 && data.length >= 10) {
-      const weightKg = decodeWeightKg(data);
-      if (weightKg === null) return;
-
-      const impedance = decodeImpedance(data);
-      logRenphoDebug(
-        logDebug,
-        `[Renpho] 0x10 weight: ${weightKg}kg impedance: ${impedance}Ω`
-      );
-      finishWithReading(weightKg, impedance);
-    }
+    void handleFrame(data);
   };
 
   try {
@@ -337,13 +348,16 @@ export async function connectRenphoScale(
       logDebug,
       `[Renpho] FFE1 notify=${notifyChar.properties.notify} FFE3 write=${writeChar.properties.write} writeWithoutResponse=${writeChar.properties.writeWithoutResponse}`
     );
-    logRenphoDebug(
-      logDebug,
-      "[Renpho] Connected. Waiting for scale profile request (step on scale now)."
-    );
 
     await notifyChar.startNotifications();
     notifyChar.addEventListener("characteristicvaluechanged", handleNotification);
+
+    protocolState = "INIT";
+    logRenphoDebug(
+      logDebug,
+      "[Renpho] GATT connected. Sending unit initialization packet..."
+    );
+    await sendUnitInit("[Renpho] Unit init on connect");
 
     onStatus("reading");
 
