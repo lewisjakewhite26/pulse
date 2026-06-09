@@ -25,7 +25,71 @@ const CHR_AE02 = uuid16(0xae02);
 
 const SCALE_EPOCH_OFFSET = 946684800;
 const IMPEDANCE_GRACE_MS = 1500;
-const READING_TIMEOUT_MS = 30_000;
+const READING_TIMEOUT_MS = 60_000;
+
+// DEBUG — remove once ES-26M decoder is confirmed
+function debugLogFrame(source: string, data: Uint8Array): void {
+  const hex = Array.from(data)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join(" ");
+  console.log(`[Renpho] Frame received on ${source} (${data.length} bytes): ${hex}`);
+  console.log(`[Renpho] First byte: 0x${data[0].toString(16)}`);
+}
+
+// DEBUG — remove once ES-26M decoder is confirmed
+function debugLogWeightCandidates(data: Uint8Array): void {
+  if (data.length < 5) return;
+  const weightRaw = ((data[3] & 0xff) << 8) | (data[4] & 0xff);
+  const weightDiv100 = weightRaw / 100;
+  const weightDiv10 = weightRaw / 10;
+  console.log(
+    `[Renpho] Weight raw bytes: ${data[3]} ${data[4]} -> ${weightDiv100}kg (/100) or ${weightDiv10}kg (/10)`
+  );
+  const weightKg =
+    weightDiv100 >= 20 && weightDiv100 <= 300
+      ? weightDiv100
+      : weightDiv10 >= 20 && weightDiv10 <= 300
+        ? weightDiv10
+        : 0;
+  console.log(
+    `[Renpho] Weight candidates: ${weightDiv100}kg (/100), ${weightDiv10}kg (/10), using: ${weightKg}kg`
+  );
+}
+
+// DEBUG — relaxed decode for unknown frame layouts; remove once confirmed
+function tryRelaxedWeightDecode(data: Uint8Array): { weight: number; impedance: number } | null {
+  if (data.length < 10) return null;
+
+  debugLogWeightCandidates(data);
+
+  const weightRaw = ((data[3] & 0xff) << 8) | (data[4] & 0xff);
+  const weightDiv100 = weightRaw / 100;
+  const weightDiv10 = weightRaw / 10;
+  const weightKg =
+    weightDiv100 >= 20 && weightDiv100 <= 300
+      ? weightDiv100
+      : weightDiv10 >= 20 && weightDiv10 <= 300
+        ? weightDiv10
+        : 0;
+
+  if (weightKg === 0) return null;
+
+  let impedance = 0;
+  if (data.length >= 11) {
+    const resistance1 = ((data[9] & 0xff) << 8) | (data[10] & 0xff);
+    const resistance2 =
+      data.length >= 13 ? ((data[11] & 0xff) << 8) | (data[12] & 0xff) : 0;
+    impedance = resistance1 < 41 ? resistance2 : resistance1;
+    if (impedance === 0 && data.length >= 10) {
+      const r1 = ((data[6] & 0xff) << 8) | (data[7] & 0xff);
+      const r2 = ((data[8] & 0xff) << 8) | (data[9] & 0xff);
+      impedance = r1 > 0 ? r1 : r2;
+    }
+  }
+
+  console.log(`[Renpho] Relaxed decode accepted: ${weightKg}kg, impedance=${impedance}`); // DEBUG
+  return { weight: weightKg, impedance };
+}
 
 export type RenphoScaleStatus =
   | "scanning"
@@ -84,6 +148,11 @@ function parseWeightFrame(
     return { reading: null, firstStableNoImpedanceAt };
   }
 
+  // DEBUG — log 0x10 frame decode attempt
+  console.log(
+    `[Renpho] Parsing 0x10 frame: factor=${weightScaleFactor}, longFrame=${isLongFrameVariant}, len=${data.length}`
+  );
+
   let stable: boolean;
   let rawWeight: number;
   let r1: number;
@@ -118,16 +187,34 @@ function parseWeightFrame(
     r2 = (data[8] << 8) | data[9];
   }
 
-  if (!stable) return { reading: null, firstStableNoImpedanceAt };
+  if (!stable) {
+    console.log("[Renpho] 0x10 frame not stable yet"); // DEBUG
+    return { reading: null, firstStableNoImpedanceAt };
+  }
 
   let weight = rawWeight / weightScaleFactor;
+  const weightDiv100 = rawWeight / 100;
+  const weightDiv10 = rawWeight / 10;
   if (weight <= 5 || weight >= 250) {
     const altFactor = weightScaleFactor === 100 ? 10 : 100;
     const altWeight = rawWeight / altFactor;
     if (altWeight > 5 && altWeight < 250) weight = altWeight;
   }
+  if (weight < 20 || weight > 300) {
+    weight =
+      weightDiv100 >= 20 && weightDiv100 <= 300
+        ? weightDiv100
+        : weightDiv10 >= 20 && weightDiv10 <= 300
+          ? weightDiv10
+          : weight;
+  }
+
+  console.log(
+    `[Renpho] 0x10 decode: raw=${rawWeight}, stable=${stable}, r1=${r1}, r2=${r2}, weight=${weight}kg`
+  ); // DEBUG
 
   if (weight < 20 || weight > 300 || !Number.isFinite(weight)) {
+    console.log("[Renpho] 0x10 frame rejected: weight out of range"); // DEBUG
     return { reading: null, firstStableNoImpedanceAt: null };
   }
 
@@ -154,7 +241,7 @@ export async function connectRenphoScale(
   let completed = false;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
-  let notifyChar: BluetoothRemoteGATTCharacteristic | undefined;
+  const notifyChars: BluetoothRemoteGATTCharacteristic[] = [];
   let device: BluetoothDevice | undefined;
   let vendorService: BluetoothRemoteGATTService | undefined;
   let aeService: BluetoothRemoteGATTService | undefined;
@@ -184,7 +271,9 @@ export async function connectRenphoScale(
 
   const disconnectScale = () => {
     try {
-      if (notifyChar) void notifyChar.stopNotifications();
+      for (const characteristic of notifyChars) {
+        void characteristic.stopNotifications();
+      }
       if (device?.gatt?.connected) device.gatt.disconnect();
     } catch {
       // ignore cleanup errors
@@ -217,18 +306,20 @@ export async function connectRenphoScale(
     disconnectScale();
   };
 
-  const writeCmd = async (data: number[]) => {
+  const writeCmd = async (label: string, data: number[]) => {
     if (!vendorService) return;
     const payload = new Uint8Array(data);
     for (const uuid of [CHR_WRITE_T2, CHR_WRITE_T1]) {
       try {
         const characteristic = await vendorService.getCharacteristic(uuid);
         await characteristic.writeValue(payload);
+        console.log(`[Renpho] Wrote ${label} to ${uuid}`); // DEBUG
         return;
       } catch {
         // try alternate write characteristic
       }
     }
+    console.log(`[Renpho] Failed to write ${label}`); // DEBUG
   };
 
   const writeAe01 = async (data: number[]) => {
@@ -257,19 +348,23 @@ export async function connectRenphoScale(
     configSent = true;
     clearFallbackTimer();
 
+    console.log(
+      `[Renpho] State: 0x12 scale info -> AE01 init + 0x13 config (proto=0x${seenProtocolType.toString(16)})`
+    ); // DEBUG
     await subscribeAe02();
     await writeAe01([0xfe, 0xdc, 0xba, 0xc0, 0x06, 0x00, 0x02, 0x01, 0x01, 0xef]);
     await wait(200);
 
     const cmd = [0x13, 0x09, seenProtocolType, 0x01, 0x10, 0x00, 0x00, 0x00, 0x00];
     cmd[8] = checksumByte(cmd);
-    await writeCmd(cmd);
+    await writeCmd("0x13 config", cmd);
   };
 
   const handleReady = async () => {
     if (timeSyncSent) return;
     timeSyncSent = true;
 
+    console.log("[Renpho] State: 0x14 ready -> 0x20 time sync + A2 profile"); // DEBUG
     const secs = Math.floor(Date.now() / 1000) - SCALE_EPOCH_OFFSET;
     const timeCmd = [
       0x20,
@@ -282,41 +377,44 @@ export async function connectRenphoScale(
       0x00,
     ];
     timeCmd[7] = checksumByte(timeCmd);
-    await writeCmd(timeCmd);
+    await writeCmd("0x20 time sync", timeCmd);
 
     const profileAge = Math.min(0xff, Math.max(1, age));
     const profileCmd = [0xa2, 0x06, 0x01, 0x32, profileAge, 0x00];
     profileCmd[5] = checksumByte(profileCmd);
-    await writeCmd(profileCmd);
+    await writeCmd("A2 user profile", profileCmd);
 
     await writeAe01([0x02, 0x70, 0x61, 0x73, 0x73]);
+    console.log("[Renpho] Sent AE01 pass auth"); // DEBUG
   };
 
   const handleConfigRequest = async () => {
     if (historyResponseSent) return;
     historyResponseSent = true;
 
+    console.log("[Renpho] State: 0x21 config request -> A00D history + 0x22 start"); // DEBUG
     const msg1 = [
       0xa0, 0x0d, 0x04, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     ];
     msg1[12] = checksumByte(msg1);
-    await writeCmd(msg1);
+    await writeCmd("A00D history 1", msg1);
     await wait(200);
 
     const msg2 = [
       0xa0, 0x0d, 0x02, 0x01, 0x00, 0x08, 0x00, 0x21, 0x06, 0xb8, 0x04, 0x02, 0x00,
     ];
     msg2[12] = checksumByte(msg2);
-    await writeCmd(msg2);
+    await writeCmd("A00D history 2", msg2);
     await wait(200);
 
     const startCmd = [0x22, 0x06, seenProtocolType, 0x00, 0x03, 0x00];
     startCmd[5] = checksumByte(startCmd);
-    await writeCmd(startCmd);
+    await writeCmd("0x22 start measurement", startCmd);
   };
 
   const runFallbackHandshake = async () => {
     if (completed) return;
+    console.log("[Renpho] Running fallback handshake (no 0x12 received within 2s)"); // DEBUG
     if (!configSent) {
       seenProtocolType = 0xff;
       await handleScaleInfo();
@@ -331,11 +429,13 @@ export async function connectRenphoScale(
     }
   };
 
-  const handleNotification = (event: Event) => {
+  const handleNotification = (source: string) => (event: Event) => {
     const target = event.target as BluetoothRemoteGATTCharacteristic;
     if (!target.value || completed) return;
 
     const data = new Uint8Array(target.value.buffer);
+    debugLogFrame(source, data);
+
     if (data.length < 3) return;
 
     const opcode = data[0];
@@ -345,9 +445,13 @@ export async function connectRenphoScale(
         isLongFrameVariant = true;
         seenProtocolType = 0x00;
         weightScaleFactor = 10;
+        console.log("[Renpho] Detected ES-26M long 0x12 frame, factor=10"); // DEBUG
       } else {
         seenProtocolType = data[2];
         weightScaleFactor = data[10] === 1 ? 100 : 10;
+        console.log(
+          `[Renpho] Detected classic 0x12 frame, proto=0x${seenProtocolType.toString(16)}, factor=${weightScaleFactor}`
+        ); // DEBUG
       }
       void handleScaleInfo();
       return;
@@ -364,7 +468,13 @@ export async function connectRenphoScale(
     }
 
     if (opcode === 0xa1 || opcode === 0xa3 || opcode === 0x23) {
+      console.log(`[Renpho] Ignoring opcode 0x${opcode.toString(16)}`); // DEBUG
       return;
+    }
+
+    // DEBUG — relaxed decode attempt on any frame >= 10 bytes
+    if (data.length >= 10) {
+      debugLogWeightCandidates(data);
     }
 
     const parsed = parseWeightFrame(
@@ -378,8 +488,36 @@ export async function connectRenphoScale(
     if (parsed.reading) {
       const ackCmd = [0x1f, 0x05, seenProtocolType, 0x10, 0x00];
       ackCmd[4] = checksumByte(ackCmd);
-      void writeCmd(ackCmd);
+      void writeCmd("0x1F stable ack", ackCmd);
       finishWithReading(parsed.reading.weight, parsed.reading.impedance);
+      return;
+    }
+
+    // DEBUG — fallback relaxed decode if strict 0x10 parser did not match
+    if (data.length >= 10) {
+      const relaxed = tryRelaxedWeightDecode(data);
+      if (relaxed) {
+        const ackCmd = [0x1f, 0x05, seenProtocolType, 0x10, 0x00];
+        ackCmd[4] = checksumByte(ackCmd);
+        void writeCmd("0x1F stable ack (relaxed)", ackCmd);
+        finishWithReading(relaxed.weight, relaxed.impedance);
+      }
+    }
+  };
+
+  const subscribeNotifyChar = async (uuid: string, label: string) => {
+    if (!vendorService) return;
+    try {
+      const characteristic = await vendorService.getCharacteristic(uuid);
+      await characteristic.startNotifications();
+      characteristic.addEventListener(
+        "characteristicvaluechanged",
+        handleNotification(label)
+      );
+      notifyChars.push(characteristic);
+      console.log(`[Renpho] Notifications started on ${label} (${uuid})`); // DEBUG
+    } catch (err) {
+      console.log(`[Renpho] ${label} (${uuid}) not available:`, err); // DEBUG
     }
   };
 
@@ -401,13 +539,16 @@ export async function connectRenphoScale(
 
     onStatus("connected");
     const server = await device.gatt!.connect();
+    console.log("[Renpho] Connected to GATT server"); // DEBUG
 
+    let vendorServiceUuid = "";
     for (const serviceUuid of [
       WEIGHT_MEASUREMENT_SERVICE_T2,
       WEIGHT_MEASUREMENT_SERVICE_T1,
     ]) {
       try {
         vendorService = await server.getPrimaryService(serviceUuid);
+        vendorServiceUuid = serviceUuid;
         break;
       } catch {
         // try alternate vendor service
@@ -416,34 +557,57 @@ export async function connectRenphoScale(
     if (!vendorService) {
       throw new Error("Scale vendor service not found");
     }
+    console.log(`[Renpho] Got vendor service ${vendorServiceUuid}`); // DEBUG
 
     try {
       aeService = await server.getPrimaryService(AE00_SERVICE);
+      console.log("[Renpho] Got AE00 service"); // DEBUG
     } catch {
-      // AE00 not present on older firmware
-    }
-
-    for (const uuid of [CHR_NOTIFY_T2, CHR_NOTIFY_T1]) {
-      try {
-        notifyChar = await vendorService.getCharacteristic(uuid);
-        break;
-      } catch {
-        // try alternate notify characteristic
-      }
-    }
-    if (!notifyChar) {
-      throw new Error("Scale notify characteristic not found");
+      console.log("[Renpho] AE00 service not present on this firmware"); // DEBUG
     }
 
     onStatus("reading");
-    await notifyChar.startNotifications();
-    notifyChar.addEventListener("characteristicvaluechanged", handleNotification);
+    await subscribeNotifyChar(CHR_NOTIFY_T2, "FFF1 notify");
+    await subscribeNotifyChar(CHR_NOTIFY_T1, "FFE1 notify");
+    await subscribeNotifyChar(CUSTOM3_MEASUREMENT_CHARACTERISTIC, "FFE3 alternative");
+
+    if (notifyChars.length === 0) {
+      throw new Error("Scale notify characteristic not found");
+    }
 
     await subscribeAe02();
+    if (hasAe00) {
+      console.log("[Renpho] Subscribed to AE02 notifications"); // DEBUG
+    }
+
+    try {
+      const custom3 = await vendorService.getCharacteristic(CUSTOM3_MEASUREMENT_CHARACTERISTIC);
+      await custom3.writeValue(new Uint8Array([0x1f, 0x05, 0x15, 0x10, 0x49]));
+      console.log("[Renpho] Sent init command to CUSTOM3"); // DEBUG
+    } catch {
+      console.log("[Renpho] CUSTOM3 init not available on this firmware"); // DEBUG
+    }
+
+    try {
+      const now = new Date();
+      const custom4 = await vendorService.getCharacteristic(CUSTOM4_MEASUREMENT_CHARACTERISTIC);
+      await custom4.writeValue(
+        new Uint8Array([
+          0x02,
+          now.getFullYear() - 2000,
+          now.getMonth() + 1,
+          now.getDate(),
+          now.getHours(),
+        ])
+      );
+      console.log("[Renpho] Sent time sync to CUSTOM4"); // DEBUG
+    } catch {
+      console.log("[Renpho] CUSTOM4 time sync not available on this firmware"); // DEBUG
+    }
 
     if (!hasAe00) {
-      await writeCmd([0x13, 0x09, 0x00, 0x01, 0x01, 0x02]);
-      await writeCmd([0x13, 0x09, 0x00, 0x01, 0x10, 0x00, 0x00, 0x00, 0x2d]);
+      await writeCmd("legacy unlock 1", [0x13, 0x09, 0x00, 0x01, 0x01, 0x02]);
+      await writeCmd("legacy unlock 2", [0x13, 0x09, 0x00, 0x01, 0x10, 0x00, 0x00, 0x00, 0x2d]);
     }
 
     fallbackTimer = setTimeout(() => {
