@@ -267,6 +267,73 @@ function ProgressBar({ step, total }) {
   );
 }
 
+// DEBUG — remove after fix
+function RenphoDebugPanel({ logs }) {
+  const logRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logs]);
+
+  const copyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(logs.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  if (logs.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: C.onSurfaceVariant }}>Renpho debug log</span>
+        <button
+          type="button"
+          onClick={copyLogs}
+          style={{
+            background: "#2d3436",
+            color: "#dfe6e9",
+            border: "none",
+            borderRadius: 8,
+            padding: "6px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: "inherit",
+            cursor: "pointer",
+          }}
+        >
+          {copied ? "Copied" : "Copy logs"}
+        </button>
+      </div>
+      <div
+        ref={logRef}
+        style={{
+          background: "#1a1a2e",
+          color: "#c8d6e5",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          fontSize: 11,
+          lineHeight: 1.5,
+          padding: "10px 12px",
+          borderRadius: 10,
+          maxHeight: 220,
+          overflowY: "auto",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+        }}
+      >
+        {logs.map((line, index) => (
+          <div key={index}>{line}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Onboarding ──────────────────────────────────────────────────────────────
 
 function Onboarding({ onComplete }) {
@@ -277,6 +344,7 @@ function Onboarding({ onComplete }) {
   const [scaleStatus, setScaleStatus] = useState("idle");
   const [scaleError, setScaleError] = useState(null);
   const [manualEntry, setManualEntry] = useState(false);
+  const [debugLogs, setDebugLogs] = useState([]); // DEBUG — remove after fix
 
   const [p, setP] = useState({
     name: getAccount()?.username || "", dob: "", sex: "",
@@ -305,16 +373,20 @@ function Onboarding({ onComplete }) {
 
   const connectRenpho = async () => {
     if (!isWebBluetoothAvailable()) { setScaleStatus("unsupported"); setManualEntry(true); return; }
+    setDebugLogs([]); // DEBUG — remove after fix
     await connectRenphoScale({
-      age: ageFromDob(p.dob) || 28,
-      heightCm: parseInt(p.height) || 175,
-      isMale: p.sex !== "Female",
+      userProfile: {
+        sex: p.sex || "Male",
+        age: String(ageFromDob(p.dob) || 28),
+        height: p.height || "175",
+      },
       calcBIA,
       onStatus: setScaleStatus,
       onError: (message) => {
         setScaleError(message);
         if (message) setManualEntry(true);
       },
+      onDebugLog: (message) => setDebugLogs((prev) => [...prev, message]), // DEBUG — remove after fix
       onReading: ({ weight, composition }) => {
         setP(prev => ({
           ...prev,
@@ -490,6 +562,7 @@ function Onboarding({ onComplete }) {
             <button onClick={() => setManualEntry(true)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.onSurfaceVariant, fontFamily: "inherit" }}>Enter manually instead</button>
           </div>
         )}
+        <RenphoDebugPanel logs={debugLogs} />
         {scaleStatus === "done" && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: `${C.secondary}12`, border: `1.5px solid ${C.secondary}40`, borderRadius: 10, marginBottom: 16 }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.secondary }} />
@@ -859,6 +932,7 @@ export default function Pulse() {
   const [scaleMeasurement, setScaleMeasurement] = useState(null);
   const [scaleError, setScaleError] = useState(null);
   const [measurementSaved, setMeasurementSaved] = useState(false);
+  const [debugLogs, setDebugLogs] = useState([]); // DEBUG — remove after fix
   const [profileSaved, setProfileSaved] = useState(false);
   const [restorePending, setRestorePending] = useState(null);
   const [restoreError, setRestoreError] = useState(null);
@@ -1088,13 +1162,17 @@ export default function Pulse() {
       return;
     }
     setScaleMeasurement(null);
+    setDebugLogs([]); // DEBUG — remove after fix
     await connectRenphoScale({
-      age: profileAge(profile) || 30,
-      heightCm: parseInt(profile.height) || 175,
-      isMale: profile.sex !== "Female",
+      userProfile: {
+        sex: profile.sex || "Male",
+        age: String(profileAge(profile) || 30),
+        height: profile.height || "175",
+      },
       calcBIA,
       onStatus: setScaleStatus,
       onError: setScaleError,
+      onDebugLog: (message) => setDebugLogs((prev) => [...prev, message]), // DEBUG — remove after fix
       onReading: ({ weight, impedance, composition }) => {
         setScaleMeasurement({
           weight,
@@ -1463,6 +1541,7 @@ export default function Pulse() {
                   {scaleStatus === "idle" && "Connect scale"}{scaleStatus === "scanning" && "Scanning..."}{scaleStatus === "connected" && "Step on scale"}{scaleStatus === "reading" && "Reading..."}{scaleStatus === "done" && "Take another reading"}{scaleStatus === "error" && "Try again"}
                 </button>
               </div>
+              <RenphoDebugPanel logs={debugLogs} />
             </GlassCard>
           </div>
           <div>
