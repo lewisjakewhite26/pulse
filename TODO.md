@@ -12,13 +12,14 @@
 
 ### End-to-end smoke test (phone or desktop)
 - [ ] Production URL: test full flow on Vercel deploy
-- [ ] Fresh load → AccountSetup (or PIN lock if account exists)
-- [ ] Legacy profile: profile without account shows welcome message and pre-filled name
+- [ ] AccountSetup: name step in glass card, progress pills on PIN steps
+- [ ] Set and confirm PIN via keyboard (4 digit boxes)
+- [ ] Legacy profile: amber welcome card, pre-filled name, no account yet
+- [ ] Refresh → PinLock: "Welcome back, [name]" greeting and glass card
 - [ ] Complete onboarding → Start tracking
 - [ ] Log tab: parse and confirm a real entry → header chip shows "Not synced"
 - [ ] Tap sync chip → backup downloads → chip shows "Synced"
 - [ ] Profile → Backups → restore flow with inline confirmation
-- [ ] Refresh → PIN lock → data still there
 - [ ] PWA: install on Android Chrome from production URL
 
 ### Automated tests
@@ -38,14 +39,37 @@
 
 ---
 
+## Future — when shipping to others
+
+### Strava integration (code already built, credentials not configured)
+- [ ] Sign up for Strava Standard Tier developer subscription ($11.99/month)
+- [ ] Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create the app
+- [ ] Set callback domain to your production Vercel URL
+- [ ] Add `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` to Vercel environment variables
+- [ ] Paste credentials into `lib/strava-config.ts`
+- [ ] Test: Activity tab → Connect Strava → approve → sync recent activities
+- [ ] When user base grows past 10, submit app for Strava review to scale to 9,999 users
+- [ ] At 10,000+ users, apply for Extended Access Tier (no subscription required at that scale)
+
+---
+
 ## Done
 
 ### Deployment and security
 - GitHub repo: [github.com/lewisjakewhite26/pulse](https://github.com/lewisjakewhite26/pulse)
 - Vercel production deploy (Next.js 15.5.18 security patch)
 - Gemini API key moved to `GEMINI_API_KEY` env var (no hardcoded key in source)
-- Old Gemini key revoked in Google AI Studio
+- Old Gemini key revoked in Google Studio
 - `.env.local` for local dev, `GEMINI_API_KEY` set in Vercel (Production + Preview)
+
+### Auth UI (AccountSetup + PinLock)
+- Shared `AuthShell` with frosted header matching main app
+- Glass card layout for name entry, PIN setup, and PIN lock
+- Keyboard PIN entry (4 digit boxes, auto-advance, paste support)
+- Step progress pills on signup PIN steps
+- Legacy welcome card (amber border, personalised copy)
+- PinLock greeting with account/profile name
+- PIN confirmation stale-state bug fixed
 
 ### Sync spec (items 1–10)
 1. Silent saves (no auto-export on each entry)
