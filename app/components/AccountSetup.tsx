@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createAccount } from "../../lib/storage";
+import { debugSkipToApp } from "../../lib/dev-shortcuts";
 import {
   AuthHeading,
   AuthShell,
@@ -90,6 +91,26 @@ export default function AccountSetup({
             Continue
           </button>
         </GlassCard>
+        {/* DEBUG — remove before shipping */}
+        <button
+          type="button"
+          onClick={debugSkipToApp}
+          style={{
+            marginTop: 16,
+            padding: 0,
+            border: "none",
+            background: "transparent",
+            color: C.onSurfaceVariant,
+            fontSize: 11,
+            fontFamily: "inherit",
+            cursor: "pointer",
+            textDecoration: "underline",
+            width: "100%",
+            textAlign: "center",
+          }}
+        >
+          Skip to app (dev)
+        </button>
       </AuthShell>
     );
   }

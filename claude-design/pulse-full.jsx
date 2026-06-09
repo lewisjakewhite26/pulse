@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   getProfile, saveProfile, isOnboarded, setOnboarded,
-  createAccount, hasAccount, setUnlocked,
   addLog, deleteLog, getLogs, getDailyTotals, computeWellnessScore,
   addActivity, addMeasurement, getLatestMeasurement,
   getActivities, getWeekHistory, getWeeklyStats,
@@ -16,6 +15,7 @@ import {
 import { parseActivityFile, stravaActivityToUpload } from "../lib/activity-parser";
 import { isStravaClientConfigured } from "../lib/strava-config";
 import { connectRenphoScale, isWebBluetoothAvailable } from "../lib/renpho-bluetooth";
+import { debugSkipToApp } from "../lib/dev-shortcuts";
 
 function isChromeAndroid() {
   if (typeof navigator === "undefined") return false;
@@ -366,35 +366,7 @@ function Onboarding({ onComplete }) {
   const TOTAL = 14;
 
   // DEBUG — remove before shipping
-  const skipOnboarding = () => {
-    const profile = {
-      ...EMPTY_PROFILE,
-      name: "Lewis",
-      age: "34",
-      sex: "Male",
-      height: "180",
-      weight: "84",
-      calorieTarget: "2400",
-      proteinTarget: "180",
-      carbTarget: "240",
-      fatTarget: "65",
-      waterTarget: "3000",
-      stepsTarget: "10000",
-    };
-    // DEBUG — also create a dummy account to skip PIN lock
-    if (!hasAccount()) {
-      createAccount("Lewis", "0000");
-    }
-    try {
-      localStorage.setItem("pulse_session_unlocked", "true");
-    } catch {
-      // ignore storage errors in private mode
-    }
-    setUnlocked(true);
-    saveProfile(profile);
-    setOnboarded(true);
-    onComplete(profile);
-  };
+  const skipOnboarding = () => debugSkipToApp();
 
   const calcBIA = (weight, impedance, age, heightCm, isMale) => {
     const h = heightCm / 100;
@@ -531,7 +503,7 @@ function Onboarding({ onComplete }) {
             textDecoration: "underline",
           }}
         >
-          Skip onboarding (dev)
+          Skip to app (dev)
         </button>
       </div>
     </div>
@@ -972,7 +944,16 @@ export default function Pulse() {
   const [dataTick, setDataTick] = useState(0);
   const refreshData = () => setDataTick(t => t + 1);
 
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState(() => {
+    if (typeof sessionStorage !== "undefined") {
+      const devTab = sessionStorage.getItem("pulse_dev_tab");
+      if (devTab) {
+        sessionStorage.removeItem("pulse_dev_tab");
+        return devTab;
+      }
+    }
+    return "dashboard";
+  });
   const [input, setInput] = useState("");
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState(null);
