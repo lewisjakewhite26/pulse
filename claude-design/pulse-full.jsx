@@ -13,6 +13,7 @@ import {
   parseBackupFile, restoreFromBackup,
 } from "../lib/storage";
 import { parseActivityFile, stravaActivityToUpload } from "../lib/activity-parser";
+import { buildCoachGeminiRequest, readCoachImageFile } from "../lib/coach-prompt";
 import { isStravaClientConfigured } from "../lib/strava-config";
 import { connectRenphoScale, isWebBluetoothAvailable } from "../lib/renpho-bluetooth";
 import { debugSkipToApp } from "../lib/dev-shortcuts";
@@ -955,6 +956,8 @@ export default function Pulse() {
     return "dashboard";
   });
   const [input, setInput] = useState("");
+  const [coachImage, setCoachImage] = useState(null);
+  const coachImageRef = useRef();
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState(null);
   const [reviewCard, setReviewCard] = useState(null);
@@ -1072,12 +1075,17 @@ export default function Pulse() {
 
   const buildProfileContext = () => {
     const lines = [];
+    if (profile.name) lines.push(`Name: ${profile.name}`);
     if (profile.dob) lines.push(`DOB: ${profile.dob} (age ${profileAge(profile)}), Sex: ${profile.sex}`);
     else if (profile.age) lines.push(`Age: ${profile.age}, Sex: ${profile.sex}`);
     if (profile.weight) lines.push(`Weight: ${profile.weight}kg, Height: ${profile.height}cm`);
+    if (profile.goals) lines.push(`Goals: ${profile.goals}`);
+    if (profile.sport) lines.push(`Sport/activity: ${profile.sport}`);
+    if (profile.trainingDays) lines.push(`Training: ${profile.trainingDays} days/week, intensity ${profile.trainingIntensity || "not set"}`);
     if (profile.medication) lines.push(`Medication: ${profile.medication}`);
     if (profile.alcoholHabit) lines.push(`Alcohol: ${profile.alcoholHabit}, drinks: ${profile.alcoholDrinks}`);
     if (profile.calorieTarget) lines.push(`Calorie target: ${profile.calorieTarget}kcal, Protein: ${profile.proteinTarget}g`);
+    if (profile.stepsTarget) lines.push(`Steps target: ${profile.stepsTarget}`);
     return lines.length ? `\n\nUSER PROFILE:\n${lines.join("\n")}` : "";
   };
 
@@ -1087,22 +1095,39 @@ export default function Pulse() {
   };
 
   const handleParse = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && !coachImage) return;
     setParsing(true); setParseError(null);
     try {
       const res = await fetch("/api/gemini", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `You are a precise nutrition and fitness data parser. Return ONLY valid JSON.${buildProfileContext()}\n\nInput: "${input}"\n\nReturn: {"calories":number|null,"protein_g":number|null,"carbs_g":number|null,"fat_g":number|null,"water_ml":number|null,"alcohol_units":number|null,"medication_taken":boolean|null,"steps":number|null,"items":[],"confidence":{"calories":0-1,"protein":0-1,"carbs":0-1,"fat":0-1},"flags":[],"notes":""}\n\nRules: Never guess vague items. Reference Open Food Facts/USDA/NHS. Flag missing portions. UK alcohol units. Medication only if explicitly named. Null is correct when unsure.` }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1000 }
-        })
+        body: JSON.stringify(buildCoachGeminiRequest(
+          buildProfileContext(),
+          input.trim() || "What can you tell me from this photo?",
+          { images: coachImage ? [coachImage] : undefined }
+        ))
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
+      if (data.error) throw new Error(data.error.message || data.error);
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      if (!text) throw new Error("No response from coach");
+      const response = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const coachReply = response.coachReply || response.notes || "";
+      const parsed = {
+        calories: response.calories ?? null,
+        protein_g: response.protein_g ?? null,
+        carbs_g: response.carbs_g ?? null,
+        fat_g: response.fat_g ?? null,
+        water_ml: response.water_ml ?? null,
+        alcohol_units: response.alcohol_units ?? null,
+        medication_taken: response.medication_taken ?? null,
+        steps: response.steps ?? null,
+        items: response.items ?? [],
+        confidence: response.confidence ?? {},
+        flags: response.flags ?? [],
+        notes: response.notes ?? "",
+      };
       setReviewCard({
-        raw: input, time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), parsed,
+        raw: input.trim() || "Photo log", time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), coachReply, parsed,
         fields: [
           { label: "Calories", value: parsed.calories ? `${parsed.calories} kcal` : "—", conf: parsed.confidence?.calories ?? 0.5 },
           { label: "Protein", value: parsed.protein_g ? `${parsed.protein_g}g` : "—", conf: parsed.confidence?.protein ?? 0.5 },
@@ -1114,8 +1139,17 @@ export default function Pulse() {
         ]
       });
     } catch (err) {
-      setParseError(err.message || "Parse failed — CORS blocked. Needs a server-side proxy in the Next.js build.");
+      setParseError(err.message || "Could not reach your coach. Check your connection and try again.");
     } finally { setParsing(false); }
+  };
+
+  const handleCoachImageSelect = async (file) => {
+    try {
+      setCoachImage(await readCoachImageFile(file));
+      setParseError(null);
+    } catch (err) {
+      setParseError(err.message || "Could not attach image.");
+    }
   };
 
   const handleFileUpload = async (file) => {
@@ -1419,21 +1453,43 @@ export default function Pulse() {
 
         {tab === "log" && <>
           <div><div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, letterSpacing: "-0.02em" }}>Brain dump</div>
-            <div style={{ fontSize: 13, color: C.onSurfaceVariant }}>Type anything you've eaten, done, or taken today.</div></div>
+            <div style={{ fontSize: 13, color: C.onSurfaceVariant }}>Talk to your coach — food, training, mood, sleep, whatever's on your mind.</div></div>
           <GlassCard style={{ padding: 0, overflow: "hidden" }}>
             <textarea value={input} onChange={e => setInput(e.target.value)} placeholder="Had a chicken wrap, diet coke, apple. Did a run this morning, took my sertraline, 2 pints tonight..."
               style={{ width: "100%", minHeight: 120, background: "transparent", border: "none", padding: "16px 20px", color: C.onSurface, fontSize: 14, fontFamily: "inherit", resize: "none", outline: "none", lineHeight: 1.6, boxSizing: "border-box" }} />
-            <div style={{ borderTop: `1px solid ${C.outlineVariant}30`, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: C.onSurfaceVariant }}>Tap Parse to analyse</span>
-              <button onClick={handleParse} disabled={parsing || !input.trim()} style={{ padding: "9px 24px", borderRadius: 999, background: parsing || !input.trim() ? C.outlineVariant : C.primary, color: "#fff", border: "none", cursor: parsing || !input.trim() ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-                {parsing ? "Parsing..." : "Parse"}
+            {coachImage && (
+              <div style={{ padding: "0 16px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, color: C.primary }}>photo_camera</span>
+                <span style={{ fontSize: 12, color: C.onSurfaceVariant, flex: 1 }}>Photo attached for label or plate reading</span>
+                <button type="button" onClick={() => setCoachImage(null)} style={{ background: "none", border: "none", color: C.onSurfaceVariant, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>Remove</button>
+              </div>
+            )}
+            <div style={{ borderTop: `1px solid ${C.outlineVariant}30`, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button type="button" onClick={() => coachImageRef.current?.click()} style={{ width: 36, height: 36, borderRadius: "50%", border: `1px solid ${C.outlineVariant}`, background: C.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Attach food or label photo">
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.onSurfaceVariant }}>add_a_photo</span>
+                </button>
+                <span style={{ fontSize: 11, color: C.onSurfaceVariant }}>Say anything, or snap a label</span>
+              </div>
+              <button onClick={handleParse} disabled={parsing || (!input.trim() && !coachImage)} style={{ padding: "9px 24px", borderRadius: 999, background: parsing || (!input.trim() && !coachImage) ? C.outlineVariant : C.primary, color: "#fff", border: "none", cursor: parsing || (!input.trim() && !coachImage) ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
+                {parsing ? "Thinking..." : "Send"}
               </button>
             </div>
+            <input ref={coachImageRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { const f = e.target.files?.[0]; if (f) void handleCoachImageSelect(f); e.target.value = ""; }} style={{ display: "none" }} />
           </GlassCard>
           {parseError && <div style={{ padding: "12px 16px", background: "#FEE2E2", borderRadius: 12, fontSize: 12, color: C.error, border: `1px solid ${C.error}30` }}>{parseError}</div>}
           {reviewCard && (
             <GlassCard style={{ border: `1px solid ${C.primary}30`, background: `rgba(26,115,232,0.04)` }}>
+              {reviewCard.coachReply && (
+                <div style={{ padding: "14px 16px", background: C.surface, borderRadius: 12, marginBottom: 14, border: `1px solid ${C.outlineVariant}40` }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.primary, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>Your coach</div>
+                  <div style={{ fontSize: 14, color: C.onSurface, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{reviewCard.coachReply}</div>
+                </div>
+              )}
               <div style={{ fontSize: 12, color: C.onSurfaceVariant, fontStyle: "italic", marginBottom: 14, lineHeight: 1.5 }}>"{reviewCard.raw}"</div>
+              {reviewCard.fields.some(f => f.value !== "—") && (
+              <>
+              <Label style={{ marginBottom: 10 }}>Extracted for your log</Label>
               {reviewCard.parsed.flags?.length > 0 && (
                 <div style={{ padding: "10px 14px", background: `${C.amber}18`, border: `1px solid ${C.amber}40`, borderRadius: 10, marginBottom: 14 }}>
                   <Label style={{ color: C.tertiary, marginBottom: 6 }}>Flagged</Label>
@@ -1450,8 +1506,10 @@ export default function Pulse() {
                   </div>
                 ))}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => { addLog(reviewCard.raw, reviewCard.parsed); setReviewCard(null); setInput(""); refreshData(); }} style={{ flex: 1, padding: "11px 0", borderRadius: 999, background: C.secondary, color: "#fff", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>Confirm and save</button>
+              </>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: reviewCard.fields.some(f => f.value !== "—") ? 0 : 16 }}>
+                <button onClick={() => { addLog(reviewCard.raw, reviewCard.parsed); setReviewCard(null); setInput(""); setCoachImage(null); refreshData(); }} style={{ flex: 1, padding: "11px 0", borderRadius: 999, background: C.secondary, color: "#fff", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>Confirm and save</button>
                 <button onClick={() => setReviewCard(null)} style={{ padding: "11px 20px", borderRadius: 999, background: "transparent", color: C.onSurfaceVariant, border: `1px solid ${C.outlineVariant}`, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Discard</button>
               </div>
             </GlassCard>
