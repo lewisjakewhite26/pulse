@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { geminiGenerateContentUrl } from "@/lib/gemini-config";
 import {
   buildChatGeminiRequest,
   buildCoachGeminiBody,
@@ -19,7 +20,7 @@ function getGeminiKey(): string | null {
 
 async function callGemini(body: Record<string, unknown>, key: string) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
+    geminiGenerateContentUrl(key),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
 
   if (body.contents && body.action === undefined && body.input === undefined) {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      geminiGenerateContentUrl(geminiKey),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
