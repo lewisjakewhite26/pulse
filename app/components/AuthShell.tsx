@@ -1,31 +1,11 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { AUTH_THEME, glassCardStyle } from "@/lib/design-tokens";
 
-export const AUTH_THEME = {
-  primary: "#1A73E8",
-  background: "#F8F9FA",
-  surface: "#FFFFFF",
-  onSurface: "#191C1D",
-  onSurfaceVariant: "#414754",
-  outlineVariant: "#C1C6D6",
-  error: "#BA1A1A",
-  secondary: "#34A853",
-  amber: "#FBBC05",
-} as const;
+export { AUTH_THEME, glassCardStyle };
 
 const C = AUTH_THEME;
-
-export const glassCardStyle: CSSProperties = {
-  background: "rgba(255,255,255,0.6)",
-  backdropFilter: "blur(12px)",
-  WebkitBackdropFilter: "blur(12px)",
-  border: "1px solid rgba(255,255,255,0.2)",
-  boxShadow: "0px 4px 24px rgba(0,0,0,0.04)",
-  borderRadius: 16,
-  padding: 20,
-  width: "100%",
-};
 
 export const labelLtStyle: CSSProperties = {
   fontSize: 11,
@@ -58,9 +38,9 @@ interface AuthShellProps {
 export function AuthShell({ children, onBack }: AuthShellProps) {
   return (
     <div
+      className="pulse-canvas"
       style={{
         minHeight: "100dvh",
-        background: C.background,
         fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
         color: C.onSurface,
         maxWidth: 480,
@@ -73,11 +53,11 @@ export function AuthShell({ children, onBack }: AuthShellProps) {
         style={{
           height: 60,
           flexShrink: 0,
-          background: "rgba(255,255,255,0.6)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-          borderBottom: "1px solid rgba(255,255,255,0.2)",
-          boxShadow: "0px 4px 24px rgba(0,0,0,0.04)",
+          background: "rgba(255,255,255,0.8)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderBottom: "0.5px solid rgba(0,0,0,0.06)",
+          boxShadow: "0px 1px 0px rgba(0,0,0,0.04)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -90,7 +70,7 @@ export function AuthShell({ children, onBack }: AuthShellProps) {
             fontSize: 20,
             fontWeight: 800,
             color: C.primary,
-            letterSpacing: "-0.02em",
+            letterSpacing: "-0.03em",
           }}
         >
           Pulse
@@ -166,7 +146,7 @@ export function StepProgressPills({ step }: StepProgressPillsProps) {
             width: step >= s ? 24 : 8,
             height: 8,
             borderRadius: 999,
-            background: step >= s ? C.primary : C.outlineVariant,
+            background: step >= s ? C.primary : C.outline,
             transition: "width 0.3s ease, background 0.3s ease",
           }}
         />
@@ -213,7 +193,7 @@ export function LegacyWelcomeCard({ name }: { name: string }) {
     <div
       style={{
         ...glassCardStyle,
-        borderLeft: `4px solid ${C.amber}`,
+        borderLeft: `4px solid ${C.warning}`,
         marginBottom: 28,
         padding: 16,
         fontSize: 14,
@@ -249,8 +229,6 @@ export function AuthErrorBanner({ message }: { message: string }) {
 export function AuthStyles() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-      @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
       .material-symbols-outlined {
         font-family: 'Material Symbols Outlined';
         font-weight: normal;
@@ -265,16 +243,6 @@ export function AuthStyles() {
       .pin-digit-input::-ms-reveal,
       .pin-digit-input::-ms-clear {
         display: none;
-      }
-      @keyframes pin-shake {
-        0%, 100% { transform: translateX(0); }
-        20% { transform: translateX(-8px); }
-        40% { transform: translateX(8px); }
-        60% { transform: translateX(-6px); }
-        80% { transform: translateX(6px); }
-      }
-      .pin-input-shake {
-        animation: pin-shake 0.45s ease;
       }
     `}</style>
   );

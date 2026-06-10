@@ -25,6 +25,8 @@ export interface PulseProfileExtracted {
   };
   avoidFoods?: string[];
   otherNotes?: string;
+  primaryGoal?: string;
+  extractedGoals?: string[];
 }
 
 export interface PulseProfileLearned {
@@ -69,6 +71,7 @@ export interface PulseProfile {
   learned: PulseProfileLearned;
   targets: PulseProfileTargets;
   latestMeasurement?: PulseProfileMeasurement;
+  welcomeMessage?: string;
 }
 
 /** @deprecated Legacy shape — migrated on read */
@@ -130,6 +133,8 @@ export interface PulseGoal {
   effortLevel: 1 | 2 | 3 | 4;
   milestones: PulseGoalMilestone[];
   generatedAt: string;
+  primaryGoal?: string;
+  extractedGoals?: string[];
 }
 
 export interface ChatMessage {

@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ChatMessage, DailyTotals, PulseProfile } from "@/lib/types";
+import type { ChatMessage } from "@/lib/types";
 import {
   addChatMessage,
   addLog,
   getChatHistory,
   getDailyTotals,
+  getLogs,
   getProfile,
   markCoachUnread,
   updateLearnedProfile,
 } from "@/lib/storage";
 import { sendCoachMessage } from "@/lib/onboarding-client";
-import { AUTH_THEME } from "../AuthShell";
+import { COLORS } from "@/lib/design-tokens";
 
-const C = AUTH_THEME;
+const C = COLORS;
 
 function isChromeAndroid() {
   if (typeof navigator === "undefined") return false;
@@ -49,7 +50,7 @@ export default function CoachChat({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const daily = getDailyTotals();
-  const todayLogs = messages.length ? getChatHistory() : [];
+  const todayLogs = getLogs();
 
   useEffect(() => {
     setVoiceSupported(
@@ -159,77 +160,62 @@ export default function CoachChat({
   };
 
   const visibleMessages = compact ? messages.slice(-3) : messages;
+  let lastSessionLabel = "";
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: compact ? 320 : "calc(100vh - 180px)", minHeight: compact ? 320 : 400, minWidth: 0 }}>
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: compact ? "8px 0" : "0 0 16px", minWidth: 0 }}>
-        {visibleMessages.map((m) => (
-          <div key={m.id} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 12, padding: "0 4px" }}>
-            <div style={{ maxWidth: "85%", minWidth: 0 }}>
-              <div style={{
-                padding: "10px 14px",
-                borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-                background: m.role === "user" ? C.primary : "rgba(255,255,255,0.7)",
-                color: m.role === "user" ? "#fff" : C.onSurface,
-                fontSize: 14, lineHeight: 1.55, wordBreak: "break-word",
-                border: m.role === "coach" ? `1px solid ${C.outlineVariant}40` : "none",
-                backdropFilter: m.role === "coach" ? "blur(8px)" : undefined,
-              }}>
-                {m.text}
-              </div>
-              <div style={{ fontSize: 10, color: C.onSurfaceVariant, marginTop: 4, textAlign: m.role === "user" ? "right" : "left" }}>
-                {new Date(m.timestamp).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-              </div>
-            </div>
-          </div>
-        ))}
-        {typing && (
-          <div style={{ display: "flex", marginBottom: 12 }}>
-            <div style={{ padding: "12px 16px", borderRadius: "16px 16px 16px 4px", background: "rgba(255,255,255,0.7)", border: `1px solid ${C.outlineVariant}40` }}>
-              <span style={{ display: "inline-flex", gap: 4 }}>
-                {[0, 1, 2].map((i) => (
-                  <span key={i} className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: C.onSurfaceVariant, display: "inline-block", animation: `typing-bounce 1.2s ${i * 0.15}s infinite` }} />
-                ))}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {compact && onExpand && (
-        <button type="button" onClick={onExpand} style={{ background: "none", border: "none", color: C.primary, fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", marginBottom: 8 }}>
-          See full conversation
-        </button>
+  const inputBar = (
+    <div style={{
+      background: "rgba(255,255,255,0.9)",
+      backdropFilter: "blur(16px)",
+      WebkitBackdropFilter: "blur(16px)",
+      borderTop: compact ? "none" : "0.5px solid rgba(0,0,0,0.06)",
+      padding: compact ? "8px 0 0" : "10px 16px",
+      paddingBottom: compact ? 0 : "calc(10px + env(safe-area-inset-bottom))",
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      flexShrink: 0,
+    }}>
+      {listening && (
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.warning, textAlign: "center" }}>Listening...</div>
       )}
-
-      {showTodayLog && !compact && (
-        <div style={{ marginBottom: 12 }}>
-          <button type="button" onClick={() => setLogExpanded(!logExpanded)} style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.5)", border: `1px solid ${C.outlineVariant}40`, borderRadius: 12, padding: "10px 14px", cursor: "pointer", fontFamily: "inherit" }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.onSurfaceVariant, letterSpacing: "0.06em", textTransform: "uppercase" }}>Today&apos;s log</span>
-            <span style={{ fontSize: 12, color: C.primary }}>{daily.calories} kcal · {daily.protein_g}g protein</span>
-          </button>
-          {logExpanded && (
-            <div style={{ marginTop: 8, padding: "10px 14px", background: C.surface, borderRadius: 12, fontSize: 12, color: C.onSurfaceVariant }}>
-              Calories {daily.calories} · Protein {daily.protein_g}g · Water {(daily.water_ml / 1000).toFixed(1)}L · Alcohol {daily.alcohol_units} units
-            </div>
-          )}
-        </div>
+      {imageProcessing && (
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.blue, textAlign: "center" }}>Reading label...</div>
       )}
-
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
-        background: "rgba(255,255,255,0.8)", backdropFilter: "blur(12px)",
-        borderRadius: 999, border: `1px solid ${C.outlineVariant}40`, minWidth: 0,
-      }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         {voiceSupported && (
-          <button type="button" onClick={startVoice} disabled={listening || typing} aria-label="Voice" style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: listening ? "rgba(186,26,26,0.12)" : "rgba(26,115,232,0.08)", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: listening ? C.error : C.primary }}>mic</span>
+          <button
+            type="button"
+            onClick={startVoice}
+            disabled={listening || typing}
+            aria-label="Voice"
+            style={{
+              width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+              border: `1px solid ${C.primaryBorder}`,
+              background: listening ? "rgba(238,79,79,0.2)" : C.primaryLight,
+              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              animation: listening ? "pulse-mic 1.5s ease-in-out infinite" : undefined,
+              transition: "all 0.2s ease",
+            }}
+          >
+            <i className="ti ti-microphone" style={{ fontSize: 18, color: C.primary }} />
           </button>
         )}
         {voiceSupported && (
           <>
-            <button type="button" onClick={() => cameraRef.current?.click()} disabled={imageProcessing} aria-label="Camera" style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: "rgba(26,115,232,0.08)", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 18, color: C.primary }}>{imageProcessing ? "progress_activity" : "photo_camera"}</span>
+            <button
+              type="button"
+              onClick={() => cameraRef.current?.click()}
+              disabled={imageProcessing}
+              aria-label="Camera"
+              style={{
+                width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                border: `1px solid ${C.primaryBorder}`, background: C.primaryLight,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              {imageProcessing
+                ? <span style={{ width: 16, height: 16, border: `2px solid ${C.primary}`, borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite", display: "inline-block" }} />
+                : <i className="ti ti-camera" style={{ fontSize: 18, color: C.primary }} />}
             </button>
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImage(f); e.target.value = ""; }} style={{ display: "none" }} />
           </>
@@ -239,12 +225,148 @@ export default function CoachChat({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && void sendMessage(input)}
           placeholder="Talk to your coach..."
-          style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", fontSize: 14, fontFamily: "inherit", outline: "none", color: C.onSurface }}
+          style={{
+            flex: 1, minWidth: 0, border: `1.5px solid ${C.outline}`, borderRadius: 999,
+            background: "rgba(255,255,255,0.8)", padding: "10px 16px", fontSize: 14,
+            fontFamily: "inherit", outline: "none", color: C.onSurface, transition: "border-color 0.2s ease",
+          }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = C.primary; }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = C.outline; }}
         />
-        <button type="button" onClick={() => void sendMessage(input)} disabled={!input.trim() || typing} aria-label="Send" style={{ width: 36, height: 36, borderRadius: "50%", border: "none", background: input.trim() && !typing ? C.primary : C.outlineVariant, cursor: input.trim() ? "pointer" : "not-allowed", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color: "#fff" }}>arrow_upward</span>
-        </button>
+        {input.trim() && (
+          <button
+            type="button"
+            onClick={() => void sendMessage(input)}
+            disabled={typing}
+            aria-label="Send"
+            style={{
+              width: 40, height: 40, borderRadius: "50%", border: "none", background: C.primary,
+              cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0px 4px 16px rgba(238,79,79,0.35)",
+            }}
+          >
+            <i className="ti ti-arrow-up" style={{ fontSize: 18, color: "#fff" }} />
+          </button>
+        )}
       </div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      height: compact ? 320 : "calc(100dvh - 60px - 80px - 16px)",
+      minHeight: compact ? 320 : 360,
+      minWidth: 0,
+      margin: compact ? 0 : "-20px",
+      width: compact ? "100%" : "calc(100% + 40px)",
+    }}>
+      {!compact && (
+        <div style={{ padding: "0 20px 16px" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 8 }}>Brain dump</div>
+          <p style={{ fontSize: 15, lineHeight: 1.6, color: C.onSurfaceVariant, margin: 0 }}>
+            Talk to your coach, food, training, mood, sleep, whatever&apos;s on your mind.
+          </p>
+        </div>
+      )}
+
+      {compact && onExpand && (
+        <button type="button" onClick={onExpand} style={{ background: "none", border: "none", color: C.primary, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", marginBottom: 12, textAlign: "left", padding: 0 }}>
+          See full conversation
+        </button>
+      )}
+
+      <div ref={scrollRef} className="hide-scrollbar" style={{ flex: 1, overflowY: "auto", padding: compact ? "0" : "0 20px 16px", minWidth: 0 }}>
+        {visibleMessages.map((m, idx) => {
+          const sessionKey = m.timestamp.slice(0, 13);
+          const showSession = m.role === "coach" && sessionKey !== lastSessionLabel;
+          if (showSession) lastSessionLabel = sessionKey;
+          const showCoachLabel = showSession && (idx === 0 || visibleMessages[idx - 1]?.role === "user");
+
+          return (
+            <div key={m.id}>
+              {showCoachLabel && (
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.primary, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6, marginTop: idx > 0 ? 16 : 0 }}>
+                  Pulse
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 12 }}>
+                <div style={{
+                  maxWidth: "85%", minWidth: 0,
+                  padding: "10px 14px",
+                  borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                  background: m.role === "user" ? C.primary : "rgba(255,255,255,0.85)",
+                  backdropFilter: m.role === "coach" ? "blur(12px)" : undefined,
+                  WebkitBackdropFilter: m.role === "coach" ? "blur(12px)" : undefined,
+                  border: m.role === "coach" ? "1.5px solid rgba(255,255,255,0.5)" : "none",
+                  color: m.role === "user" ? "#fff" : C.onSurface,
+                  fontSize: 14, lineHeight: 1.6, wordBreak: "break-word",
+                }}>
+                  {m.text}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {typing && (
+          <div style={{ display: "flex", marginBottom: 12 }}>
+            <div style={{
+              padding: "12px 16px", borderRadius: "18px 18px 18px 4px",
+              background: "rgba(255,255,255,0.85)", backdropFilter: "blur(12px)",
+              border: "1.5px solid rgba(255,255,255,0.5)",
+            }}>
+              <span style={{ display: "inline-flex", gap: 4 }}>
+                {[0, 1, 2].map((i) => (
+                  <span key={i} style={{ width: 6, height: 6, borderRadius: "50%", background: C.primary, display: "inline-block", animation: `typing-bounce 1.2s ${i * 0.15}s infinite` }} />
+                ))}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {showTodayLog && !compact && (
+        <div style={{ padding: "0 20px 12px", flexShrink: 0 }}>
+          <button type="button" onClick={() => setLogExpanded(!logExpanded)} style={{
+            width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+            background: "rgba(255,255,255,0.7)", backdropFilter: "blur(15px)",
+            border: `1.5px solid ${C.glassBorder}`, borderRadius: 16, padding: "12px 16px",
+            cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s ease",
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.onSurfaceVariant, letterSpacing: "0.08em", textTransform: "uppercase" }}>Today&apos;s log</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: C.onSurfaceVariant }}>{daily.calories} kcal · {daily.protein_g}g protein</span>
+              <i className={`ti ti-chevron-${logExpanded ? "up" : "down"}`} style={{ fontSize: 16, color: C.onSurfaceVariant }} />
+            </span>
+          </button>
+          {logExpanded && (
+            <div style={{ ...{ background: C.glass, backdropFilter: "blur(15px)", border: `1.5px solid ${C.glassBorder}`, borderRadius: 16 }, marginTop: 8, padding: "4px 16px" }}>
+              {todayLogs.length === 0 ? (
+                <p style={{ fontSize: 15, color: C.onSurfaceVariant, padding: "12px 0", margin: 0 }}>Nothing logged yet today.</p>
+              ) : todayLogs.slice().reverse().map((entry, i, arr) => (
+                <div key={entry.id} style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "12px 0",
+                  borderBottom: i < arr.length - 1 ? "0.5px solid rgba(0,0,0,0.06)" : "none",
+                }}>
+                  <div style={{ fontSize: 12, color: C.onSurfaceVariant, width: 48, flexShrink: 0 }}>{entry.time}</div>
+                  <div style={{ flex: 1, fontSize: 15, color: C.onSurface, wordBreak: "break-word" }}>{entry.raw}</div>
+                  <div style={{ width: 16, height: 16, borderRadius: "50%", background: C.success, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <i className="ti ti-check" style={{ fontSize: 10, color: "#fff" }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!compact && (
+        <div style={{ position: "sticky", bottom: 0, left: 0, right: 0, zIndex: 50 }}>
+          {inputBar}
+        </div>
+      )}
+      {compact && inputBar}
     </div>
   );
 }

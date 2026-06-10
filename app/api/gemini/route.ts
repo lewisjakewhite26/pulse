@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import {
   buildChatGeminiRequest,
   buildCoachGeminiBody,
-  buildExtractProfilePrompt,
-  buildMilestonesPrompt,
+  buildGoalExtractionPrompt,
   buildWelcomePrompt,
   normaliseCoachResponse,
   parseJsonText,
@@ -82,27 +81,17 @@ export async function POST(request: Request) {
     if (action === "welcome") {
       const profile = body.profile as PulseProfile;
       const raw = await callGemini(
-        buildCoachGeminiBody(buildWelcomePrompt(profile), { temperature: 0.7, maxTokens: 300 }),
+        buildCoachGeminiBody(buildWelcomePrompt(profile), { temperature: 0.7, maxTokens: 400 }),
         geminiKey
       );
       return NextResponse.json({ message: raw.message ?? "" });
     }
 
-    if (action === "extract_profile") {
+    if (action === "extract_goal") {
+      const profile = body.profile as PulseProfile;
       const raw = await callGemini(
-        buildCoachGeminiBody(
-          buildExtractProfilePrompt(body.currentSituation ?? "", body.goal ?? ""),
-          { temperature: 0.2, maxTokens: 1500 }
-        ),
-        geminiKey
-      );
-      return NextResponse.json(raw);
-    }
-
-    if (action === "generate_milestones") {
-      const raw = await callGemini(
-        buildCoachGeminiBody(buildMilestonesPrompt(body.profile as PulseProfile), {
-          temperature: 0.3,
+        buildCoachGeminiBody(buildGoalExtractionPrompt(profile), {
+          temperature: 0.2,
           maxTokens: 2000,
         }),
         geminiKey

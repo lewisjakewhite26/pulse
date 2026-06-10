@@ -4,9 +4,9 @@ import { useState } from "react";
 import type { PulseGoal, PulseProfile } from "@/lib/types";
 import { effortSummary } from "@/lib/profile-helpers";
 import { getGoals } from "@/lib/storage";
-import { AUTH_THEME } from "../AuthShell";
+import { COLORS, GLASS_CARD } from "@/lib/design-tokens";
 
-const C = AUTH_THEME;
+const C = COLORS;
 
 interface GoalJourneyProps {
   profile: PulseProfile;
@@ -19,10 +19,10 @@ export default function GoalJourney({ profile }: GoalJourneyProps) {
 
   if (!goals || !goals.milestones.length) {
     return (
-      <div style={{ padding: 16, background: "rgba(255,255,255,0.6)", borderRadius: 16, marginBottom: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Your journey</div>
-        <p style={{ fontSize: 13, color: C.onSurfaceVariant, lineHeight: 1.6 }}>
-          Goal milestones are being prepared. Check back shortly after onboarding.
+      <div style={{ ...GLASS_CARD, padding: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.primary, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Your journey</div>
+        <p style={{ fontSize: 15, color: C.onSurfaceVariant, lineHeight: 1.6 }}>
+          Complete onboarding to see your goal projection.
         </p>
       </div>
     );
@@ -31,69 +31,95 @@ export default function GoalJourney({ profile }: GoalJourneyProps) {
   const primaryTarget = goals.targets[0];
   const currentVal = measurements?.bodyFat ?? primaryTarget?.current ?? profile.extracted.currentBodyFat;
   const targetVal = primaryTarget?.target ?? profile.extracted.targetBodyFat;
-
-  let coachLine = "You're where you should be. Keep it consistent.";
-  if (currentVal && targetVal && currentVal > targetVal + 2) {
-    coachLine = "You're a bit behind the curve. Not a disaster, a consistent week will sort it.";
-  } else if (currentVal && targetVal && currentVal < targetVal) {
-    coachLine = "Ahead of where I expected. Either the data is looking good or you've been properly at it.";
-  }
+  const onTrack = currentVal != null && targetVal != null && currentVal <= targetVal + 1;
 
   return (
     <div style={{ marginBottom: 20, minWidth: 0 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.primary, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Your journey</div>
-      <div style={{ background: "rgba(255,255,255,0.6)", borderRadius: 16, padding: 16, marginBottom: 12, minWidth: 0 }}>
-        <p style={{ fontSize: 14, lineHeight: 1.6, color: C.onSurface, marginBottom: 8, ...(expanded ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }) }}>
+      <div style={{ ...GLASS_CARD, padding: 16, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.primary, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>Your journey</div>
+        <p style={{
+          fontSize: 15, lineHeight: 1.6, color: C.onSurface, marginBottom: 10,
+          ...(expanded ? {} : { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }),
+        }}>
           {goals.raw || profile.goal}
         </p>
-        <button type="button" onClick={() => setExpanded(!expanded)} style={{ background: "none", border: "none", color: C.primary, fontSize: 12, fontFamily: "inherit", cursor: "pointer", padding: 0 }}>
+        <button type="button" onClick={() => setExpanded(!expanded)} style={{ background: "none", border: "none", color: C.primary, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", padding: 0 }}>
           {expanded ? "Show less" : "Read more"}
         </button>
-        <div style={{ fontSize: 12, color: C.onSurfaceVariant, marginTop: 10 }}>{effortSummary(goals.timeline, goals.effortLevel)}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: C.onSurfaceVariant, background: C.glass, border: `1.5px solid ${C.glassBorder}`, borderRadius: 999, padding: "6px 12px" }}>
+            {effortSummary(goals.timeline, goals.effortLevel)}
+          </span>
+        </div>
       </div>
 
-      {primaryTarget && (
-        <div style={{ background: C.surface, borderRadius: 12, padding: 16, marginBottom: 12, height: 120, position: "relative", overflow: "hidden" }}>
-          <div style={{ fontSize: 11, color: C.onSurfaceVariant, marginBottom: 8 }}>{primaryTarget.metric.replace(/_/g, " ")}</div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 70 }}>
-            {goals.milestones.slice(0, 6).map((m, i) => {
-              const proj = m.projectedBodyFat ?? m.projectedWeight ?? 0;
+      {primaryTarget && goals.milestones.length > 1 && (
+        <div style={{ ...GLASS_CARD, padding: "12px 8px 8px", marginBottom: 12, height: 140 }}>
+          <svg width="100%" height={100} viewBox="0 0 300 100" preserveAspectRatio="none">
+            <polyline
+              points={goals.milestones.map((m, i) => {
+                const x = (i / (goals.milestones.length - 1)) * 300;
+                const val = m.projectedBodyFat ?? m.projectedWeight ?? 0;
+                const max = Math.max(...goals.milestones.map((x) => x.projectedBodyFat ?? x.projectedWeight ?? 0), 1);
+                const y = 90 - (val / max) * 70;
+                return `${x},${y}`;
+              }).join(" ")}
+              fill="none"
+              stroke={C.primary}
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              vectorEffect="non-scaling-stroke"
+            />
+            <polyline
+              points={goals.milestones.slice(0, Math.ceil(goals.milestones.length / 2)).map((m, i, arr) => {
+                const x = (i / (goals.milestones.length - 1)) * 300;
+                const val = m.projectedBodyFat ?? m.projectedWeight ?? 0;
+                const max = Math.max(...goals.milestones.map((x) => x.projectedBodyFat ?? x.projectedWeight ?? 0), 1);
+                const y = 90 - (val / max) * 70;
+                return `${x},${y}`;
+              }).join(" ")}
+              fill="none"
+              stroke={C.primary}
+              strokeWidth={2.5}
+              vectorEffect="non-scaling-stroke"
+            />
+            {goals.milestones.map((m, i) => {
+              const x = (i / (goals.milestones.length - 1)) * 300;
+              const val = m.projectedBodyFat ?? m.projectedWeight ?? 0;
               const max = Math.max(...goals.milestones.map((x) => x.projectedBodyFat ?? x.projectedWeight ?? 0), 1);
-              const h = Math.max(8, (proj / max) * 60);
-              const past = new Date(m.date) < new Date();
+              const y = 90 - (val / max) * 70;
+              const isCurrent = i === Math.floor(goals.milestones.length / 2);
+              const dotColor = isCurrent ? (onTrack ? C.success : C.warning) : C.primary;
               return (
-                <div key={m.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                  <div style={{ width: "100%", height: h, background: past ? C.secondary : `${C.primary}40`, borderRadius: 4, border: past ? "none" : `1px dashed ${C.primary}` }} />
-                  <span style={{ fontSize: 9, color: C.onSurfaceVariant, textAlign: "center" }}>{m.label}</span>
-                </div>
+                <circle key={m.label} cx={x} cy={y} r={isCurrent ? 5 : 3} fill={dotColor} />
               );
             })}
-          </div>
+          </svg>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, marginBottom: 12 }}>
+      <div className="hide-scrollbar" style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8, marginBottom: 12 }}>
         {goals.milestones.map((m) => {
           const past = new Date(m.date) < new Date();
+          const behind = past && !onTrack;
           return (
-            <div key={m.label} style={{ minWidth: 140, flexShrink: 0, background: "rgba(255,255,255,0.7)", borderRadius: 12, padding: 12, border: `1px solid ${C.outlineVariant}40` }}>
+            <div key={m.label} style={{ ...GLASS_CARD, minWidth: 110, flexShrink: 0, padding: "12px 14px", borderRadius: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14, color: past ? C.secondary : C.onSurfaceVariant }}>{past ? "check_circle" : "schedule"}</span>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{m.label}</span>
+                <i className={`ti ${past && onTrack ? "ti-check" : behind ? "ti-alert-triangle" : "ti-clock"}`} style={{
+                  fontSize: 14,
+                  color: past && onTrack ? C.successText : behind ? C.warning : C.onSurfaceVariant,
+                }} />
+                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: C.onSurfaceVariant }}>{m.label}</span>
               </div>
               {(m.projectedBodyFat ?? m.projectedWeight) != null && (
-                <div style={{ fontSize: 16, fontWeight: 800, color: C.primary, marginBottom: 4 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: C.primary, marginBottom: 4, letterSpacing: "-0.01em" }}>
                   {m.projectedBodyFat ?? m.projectedWeight}{m.projectedBodyFat ? "%" : " kg"}
                 </div>
               )}
-              <div style={{ fontSize: 11, color: C.onSurfaceVariant, lineHeight: 1.4 }}>{m.description}</div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: C.onSurfaceVariant, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{m.description}</div>
             </div>
           );
         })}
-      </div>
-
-      <div style={{ padding: "12px 14px", background: `${C.primary}08`, borderRadius: 12, fontSize: 13, color: C.onSurface, lineHeight: 1.55, border: `1px solid ${C.primary}20` }}>
-        {coachLine}
       </div>
     </div>
   );

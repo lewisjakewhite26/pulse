@@ -113,19 +113,19 @@ export function PinInput({
     const filled = index < value.length;
     if (hasError || shake) {
       return {
-        background: "rgba(186,26,26,0.06)",
+        background: "rgba(220,38,38,0.06)",
         border: `1.5px solid ${C.error}`,
       };
     }
     if (filled) {
       return {
-        background: "rgba(26,115,232,0.08)",
+        background: "rgba(238,79,79,0.08)",
         border: `1.5px solid ${C.primary}`,
       };
     }
     return {
-      background: "rgba(255,255,255,0.5)",
-      border: `1.5px solid ${C.outlineVariant}`,
+      background: "rgba(255,255,255,0.7)",
+      border: `1.5px solid ${C.outline}`,
     };
   };
 

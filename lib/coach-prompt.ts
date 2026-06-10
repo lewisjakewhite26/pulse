@@ -5,7 +5,7 @@ import type {
   PulseProfile,
   PulseProfileLearned,
 } from "./types";
-import { buildProfileContextSummary } from "./profile-helpers";
+import { buildProfileContextSummary, EFFORT_LABELS } from "./profile-helpers";
 
 export const COACH_SYSTEM_PROMPT = `You are a real, grounded fitness and lifestyle coach. You are not a customer service bot, a cheerleader, or an AI assistant. You speak like a real person from the UK, specifically the North East of England. Straight-talking, warm when it matters, no bullshit.
 
@@ -116,97 +116,66 @@ Rules:
 }
 
 export function buildWelcomePrompt(profile: PulseProfile): string {
-  return `Generate a short opening message from a straight-talking UK health coach (North East England).
+  return `You are a straight-talking UK health and fitness coach. Generate a short opening message to a new user.
 
-User name: ${profile.name}
-Where they are now: "${profile.currentSituation}"
-Where they want to be: "${profile.goal}"
-Timeline: ${profile.timeline} months, effort level ${profile.effortLevel}/4
+User: ${profile.name}, goal: "${profile.goal}", timeline: ${profile.timeline} months, effort: ${EFFORT_LABELS[profile.effortLevel]}
 
-Rules:
-- 2-3 sentences max.
-- Reference something SPECIFIC from what they wrote. Do not be generic.
-- No "Great to meet you", no AI pleasantries, no exclamation overload.
-- Sound like a mate who's read what they wrote and has something to say.
-- UK English, no em dashes.
+The message should:
+- Start with a greeting using their name
+- Briefly describe what Pulse does in one sentence — tracks health, fitness, food, and lifestyle through conversation, gets smarter the more they talk to it
+- Ask how things are at the minute — health, fitness, habits — and ask for the honest version
+- Sound like a real person from the UK, not an AI assistant
+- No em dashes. No exclamation marks. No AI clichés. No "Let's dive in". UK English only.
+- 3-4 sentences maximum
+- Reference something specific from their goal if possible
+
+Example tone (do not copy verbatim):
+"Hey Lewis. I'm your Pulse coach. I track your health, fitness, food, and lifestyle in the background while you just talk to me. The more you tell me, the better I get at helping you. So — how are things at the minute? Health, fitness, habits. Give me the honest version."
 
 Return ONLY valid JSON: { "message": "..." }`;
 }
 
-export function buildExtractProfilePrompt(
-  currentSituation: string,
-  goal: string
-): string {
-  return `Extract structured health profile data from these two brain dumps. UK user.
+export function buildGoalExtractionPrompt(profile: PulseProfile): string {
+  const age = profile.dateOfBirth
+    ? (() => {
+        const birth = new Date(profile.dateOfBirth);
+        const today = new Date();
+        let a = today.getFullYear() - birth.getFullYear();
+        const m = today.getMonth() - birth.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) a--;
+        return a;
+      })()
+    : "unknown";
 
-CURRENT SITUATION:
-"${currentSituation}"
+  const currentWeight = profile.latestMeasurement?.weight;
+  const currentBodyFat = profile.latestMeasurement?.bodyFat;
 
-GOAL:
-"${goal}"
-
-Return ONLY valid JSON:
-{
-  "extracted": {
-    "currentWeight": number|null,
-    "targetWeight": number|null,
-    "currentBodyFat": number|null,
-    "targetBodyFat": number|null,
-    "activityLevel": string|null,
-    "sport": string|null,
-    "drinkingHabit": string|null,
-    "sleepQuality": string|null,
-    "stressLevel": string|null,
-    "medication": string[]|null,
-    "supplements": string[]|null,
-    "dietStyle": string|null,
-    "typicalMeals": { "breakfast": string|null, "lunch": string|null, "dinner": string|null, "snacks": string|null },
-    "avoidFoods": string[]|null,
-    "otherNotes": string|null
-  },
-  "targets": {
-    "calories": number|null,
-    "protein_g": number|null,
-    "carbs_g": number|null,
-    "fat_g": number|null,
-    "water_ml": number|null,
-    "steps": number|null
-  }
-}
-
-Only include values clearly stated or strongly implied. Use null when unknown.`;
-}
-
-export function buildMilestonesPrompt(profile: PulseProfile): string {
-  const ex = profile.extracted;
-  return `Generate realistic goal milestones for a UK fitness user.
+  return `Extract structured health and fitness data from this goal statement and return ONLY valid JSON.
 
 Goal text: "${profile.goal}"
-Timeline: ${profile.timeline} months
-Effort level: ${profile.effortLevel}/4 (1=just looking, 4=no excuses)
-Current weight: ${ex.currentWeight ?? "unknown"} kg
-Target weight: ${ex.targetWeight ?? "unknown"} kg
-Current body fat: ${ex.currentBodyFat ?? "unknown"}%
-Target body fat: ${ex.targetBodyFat ?? "unknown"}%
+User: ${age} year old ${profile.sex}, timeline: ${profile.timeline} months, effort: ${EFFORT_LABELS[profile.effortLevel]}
+${currentWeight ? `Current weight from scale: ${currentWeight}kg` : "No current weight available."}
+${currentBodyFat ? `Current body fat from scale: ${currentBodyFat}%` : ""}
 
-Return ONLY valid JSON:
+Return:
 {
-  "targets": [
-    { "metric": "body_fat_percentage", "current": number, "target": number, "unit": "%" }
-  ],
+  "targetBodyFat": number or null,
+  "targetWeight": number or null,
+  "primaryGoal": "string — one plain English sentence",
+  "sport": "string or null",
+  "extractedGoals": ["array of specific goals identified"],
   "milestones": [
     {
-      "label": "Week 1",
+      "label": "string e.g. Week 2",
       "date": "ISO date string",
-      "projectedBodyFat": number|null,
-      "projectedWeight": number|null,
-      "description": "one plain English sentence"
+      "description": "one plain English sentence of what to expect at this point",
+      "projectedBodyFat": number or null,
+      "projectedWeight": number or null
     }
-  ],
-  "coachComment": "one sentence on their journey"
+  ]
 }
 
-Include 5-8 milestones spread across the timeline. Be realistic for the effort level. Use ISO dates from today forward.`;
+Generate milestones at: 2 weeks, 1 month, 6 weeks, 2 months, 3 months, then every 3 months to the end of the timeline. Be realistic. Use conservative estimates based on safe rate of fat loss (0.5-1% body fat per month for moderate effort, up to 1.5% for high effort). If no current stats are available, generate relative milestones only (descriptive, no numbers).`;
 }
 
 export function buildCoachGeminiBody(

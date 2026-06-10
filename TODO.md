@@ -3,6 +3,7 @@
 ## Setup (do when ready)
 
 ### Strava API credentials
+
 - [ ] Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create an app
 - [ ] Set **Authorization Callback Domain** to your deployed host (e.g. `pulse-*.vercel.app`) or `localhost` for dev
 - [ ] Add redirect URI: `https://your-vercel-domain/strava/callback` (and `http://localhost:3000/strava/callback` for local dev)
@@ -11,6 +12,7 @@
 - [ ] Test: Activity tab → Connect Strava → approve → Sync recent activities
 
 ### End-to-end smoke test (phone or desktop)
+
 - [ ] Production URL: test full flow on Vercel deploy
 - [ ] AccountSetup: name step in glass card, progress pills on PIN steps
 - [ ] Set and confirm PIN via keyboard (4 digit boxes)
@@ -23,6 +25,7 @@
 - [ ] PWA: install on Android Chrome from production URL
 
 ### Automated tests
+
 - [ ] Run `npm test` before releases (16 tests)
 
 ---
@@ -41,6 +44,7 @@
 ## Done
 
 ### Deployment and security
+
 - GitHub repo: [github.com/lewisjakewhite26/pulse](https://github.com/lewisjakewhite26/pulse)
 - Vercel production deploy (Next.js 15.5.18 security patch)
 - Gemini API key moved to `GEMINI_API_KEY` env var (no hardcoded key in source)
@@ -48,6 +52,7 @@
 - `.env.local` for local dev, `GEMINI_API_KEY` set in Vercel (Production + Preview)
 
 ### Auth UI (AccountSetup + PinLock)
+
 - Shared `AuthShell` with frosted header matching main app
 - Glass card layout for name entry, PIN setup, and PIN lock
 - Keyboard PIN entry (4 digit boxes, auto-advance, paste support)
@@ -57,6 +62,7 @@
 - PIN confirmation stale-state bug fixed
 
 ### Sync spec (items 1–10)
+
 1. Silent saves (no auto-export on each entry)
 2. Versioned daily backup filenames (`pulse-backup-YYYY-MM-DD.json`)
 3. Sync state in localStorage (`pulse_dirty`, `pulse_last_synced`, helpers)
@@ -69,6 +75,7 @@
 10. Intentional sync model: dirty on save, export on manual tap or 10pm only
 
 ### Core app
+
 - localStorage data layer + PIN account
 - Dashboard, logs, trends, activity wired to real data
 - Garmin file parsing (FIT, GPX, TCX, CSV) + Strava OAuth routes
@@ -80,6 +87,7 @@
 ## Future — when shipping to others
 
 ### Strava integration (OAuth code already built, credentials not configured)
+
 - [ ] Sign up for Strava Standard Tier developer subscription ($11.99/month)
 - [ ] Go to [strava.com/settings/api](https://www.strava.com/settings/api) and create the app
 - [ ] Set callback domain to your production Vercel URL

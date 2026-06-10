@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import AccountSetup from "./AccountSetup";
 import PinLock from "./PinLock";
-import { hasAccount, isUnlocked, getProfile } from "../../lib/storage";
+import { hasAccount, isOnboarded, isUnlocked } from "../../lib/storage";
 
 const Pulse = dynamic(() => import("../../claude-design/pulse-full.jsx"), {
   ssr: false,
@@ -29,11 +29,12 @@ export default function PulseApp() {
   const [ready, setReady] = useState(false);
   const [accountExists, setAccountExists] = useState(false);
   const [unlocked, setUnlockedState] = useState(false);
-  const [accountCreated, setAccountCreated] = useState(false);
+  const [onboarded, setOnboardedState] = useState(false);
 
   useEffect(() => {
     setAccountExists(hasAccount());
     setUnlockedState(isUnlocked());
+    setOnboardedState(isOnboarded());
     setReady(true);
   }, []);
 
@@ -55,15 +56,16 @@ export default function PulseApp() {
     );
   }
 
-  if (!accountExists && !accountCreated) {
-    const existingProfile = getProfile();
-    const hasExistingProfile = !!existingProfile && !hasAccount();
+  if (!onboarded) {
+    return <Pulse />;
+  }
+
+  if (!accountExists) {
     return (
       <AccountSetup
-        hasExistingProfile={hasExistingProfile}
-        existingProfileName={existingProfile?.name ?? ""}
+        hasExistingProfile
+        existingProfileName=""
         onComplete={() => {
-          setAccountCreated(true);
           setAccountExists(true);
           setUnlockedState(true);
         }}
@@ -71,7 +73,7 @@ export default function PulseApp() {
     );
   }
 
-  if (accountExists && !unlocked) {
+  if (!unlocked) {
     return <PinLock onUnlock={() => setUnlockedState(true)} />;
   }
 

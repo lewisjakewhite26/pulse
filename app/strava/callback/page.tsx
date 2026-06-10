@@ -1,25 +1,24 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { saveStravaTokens } from "../../../lib/storage";
 
 function StravaCallbackInner() {
   const params = useSearchParams();
   const router = useRouter();
-  const [message, setMessage] = useState("Connecting to Strava…");
 
   useEffect(() => {
     const code = params.get("code");
     const error = params.get("error");
 
     if (error) {
-      setMessage("Strava authorisation was cancelled.");
+      router.replace("/?tab=activity&strava=cancelled");
       return;
     }
 
     if (!code) {
-      setMessage("No authorisation code received from Strava.");
+      router.replace("/?tab=activity&strava=error");
       return;
     }
 
@@ -36,26 +35,18 @@ function StravaCallbackInner() {
         saveStravaTokens(data);
         router.replace("/?tab=activity&strava=connected");
       })
-      .catch((err: Error) => {
-        setMessage(err.message || "Could not connect to Strava.");
+      .catch(() => {
+        router.replace("/?tab=activity&strava=error");
       });
   }, [params, router]);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        background: "#F8F9FA",
-        fontFamily: "system-ui, sans-serif",
-        color: "#414754",
-        textAlign: "center",
-      }}
-    >
-      {message}
+    <div className="pulse-canvas" style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 24, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
+      color: "#6B7280", textAlign: "center", fontSize: 15,
+    }}>
+      Connecting to Strava…
     </div>
   );
 }
@@ -64,16 +55,10 @@ export default function StravaCallbackPage() {
   return (
     <Suspense
       fallback={
-        <div
-          style={{
-            minHeight: "100vh",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "#F8F9FA",
-            color: "#414754",
-          }}
-        >
+        <div className="pulse-canvas" style={{
+          minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          background: "#FAFAFA", color: "#6B7280",
+        }}>
           Connecting to Strava…
         </div>
       }

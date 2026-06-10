@@ -165,6 +165,19 @@ export function verifyPin(pin: string): boolean {
   return account.pin === hashPin(pin);
 }
 
+export function updateAccountPin(newPin: string): boolean {
+  if (newPin.length !== 4) return false;
+  const account = getAccount();
+  if (!account) return false;
+  write(KEYS.account, { ...account, pin: hashPin(newPin) });
+  markDirty();
+  return true;
+}
+
+export function isDefaultPin(): boolean {
+  return verifyPin("0000");
+}
+
 export function getAccount(): PulseAccount | null {
   return read<PulseAccount | null>(KEYS.account, null);
 }
