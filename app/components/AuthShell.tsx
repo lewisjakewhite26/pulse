@@ -187,8 +187,7 @@ export function GlassCard({ children }: { children: ReactNode }) {
   return <div style={glassCardStyle}>{children}</div>;
 }
 
-export function LegacyWelcomeCard({ name }: { name: string }) {
-  const displayName = name.trim() || "there";
+export function LegacyWelcomeCard({ name: _name }: { name: string }) {
   return (
     <div
       style={{
@@ -201,7 +200,7 @@ export function LegacyWelcomeCard({ name }: { name: string }) {
         color: C.onSurface,
       }}
     >
-      Welcome back, {displayName}. We&apos;ve added a PIN lock to keep your data private. Your existing data is safe. Just set a PIN to continue.
+      Welcome back. We&apos;ve added a PIN lock to keep your data private. Your existing data is safe.
     </div>
   );
 }

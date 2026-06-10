@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { PulseGoal, PulseProfile } from "@/lib/types";
-import { effortSummary } from "@/lib/profile-helpers";
+import { effortSummary, formatDecimal } from "@/lib/profile-helpers";
 import { getGoals } from "@/lib/storage";
 import { COLORS, GLASS_CARD } from "@/lib/design-tokens";
 
@@ -113,7 +113,7 @@ export default function GoalJourney({ profile }: GoalJourneyProps) {
               </div>
               {(m.projectedBodyFat ?? m.projectedWeight) != null && (
                 <div style={{ fontSize: 18, fontWeight: 700, color: C.primary, marginBottom: 4, letterSpacing: "-0.01em" }}>
-                  {m.projectedBodyFat ?? m.projectedWeight}{m.projectedBodyFat ? "%" : " kg"}
+                  {formatDecimal(m.projectedBodyFat ?? m.projectedWeight)}{m.projectedBodyFat ? "%" : " kg"}
                 </div>
               )}
               <div style={{ fontSize: 12, fontWeight: 500, color: C.onSurfaceVariant, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{m.description}</div>

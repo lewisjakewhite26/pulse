@@ -5,6 +5,7 @@ import type { PulseProfile, ParsedBackupFile } from "@/lib/types";
 import {
   ageFromDateOfBirth,
   effortSummary,
+  formatDecimal,
 } from "@/lib/profile-helpers";
 import {
   exportAllData,
@@ -180,8 +181,8 @@ export default function ProfileTab({ profile, onProfileChange, onRestoreComplete
 
       <GlassCard>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, color: C.onSurfaceVariant }}>What Pulse knows</div>
-        <Row label="Weight" value={profile.latestMeasurement?.weight ? `${profile.latestMeasurement.weight} kg` : ex.currentWeight ? `${ex.currentWeight} kg` : undefined} source={profile.latestMeasurement ? "from your scale" : "you mentioned this"} />
-        <Row label="Body fat" value={profile.latestMeasurement?.bodyFat ? `${profile.latestMeasurement.bodyFat}%` : ex.currentBodyFat ? `${ex.currentBodyFat}%` : undefined} source={profile.latestMeasurement ? "from your scale" : "you mentioned this"} />
+        <Row label="Weight" value={profile.latestMeasurement?.weight ? `${formatDecimal(profile.latestMeasurement.weight)} kg` : ex.currentWeight ? `${formatDecimal(ex.currentWeight)} kg` : undefined} source={profile.latestMeasurement ? "from your scale" : "you mentioned this"} />
+        <Row label="Body fat" value={profile.latestMeasurement?.bodyFat ? `${formatDecimal(profile.latestMeasurement.bodyFat)}%` : ex.currentBodyFat ? `${formatDecimal(ex.currentBodyFat)}%` : undefined} source={profile.latestMeasurement ? "from your scale" : "you mentioned this"} />
         <Row label="Sport" value={ex.sport} source="you mentioned this" />
         <Row label="Drinking" value={ex.drinkingHabit || learned.alcoholPattern} source={learned.alcoholPattern ? "noticed from your logs" : "you mentioned this"} />
         <Row label="Usual lunch" value={learned.usualLunch || ex.typicalMeals?.lunch} source={learned.usualLunch ? "noticed from your logs" : "you mentioned this"} />

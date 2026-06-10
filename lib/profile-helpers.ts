@@ -26,6 +26,17 @@ export function effortSummary(timeline: number, effortLevel: 1 | 2 | 3 | 4): str
   return `${timelineLabel(timeline)}, ${EFFORT_LABELS[effortLevel].toLowerCase()}`;
 }
 
+export function roundDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+export function formatDecimal(value: number | string | null | undefined): string {
+  if (value == null || value === "") return "";
+  const n = typeof value === "number" ? value : parseFloat(String(value));
+  if (!Number.isFinite(n)) return "";
+  return roundDecimal(n).toFixed(1);
+}
+
 export function createEmptyProfile(name = ""): PulseProfile {
   return {
     name,
@@ -129,10 +140,10 @@ export function buildProfileContextSummary(profile: PulseProfile | null): string
   lines.push(`Timeline: ${timelineLabel(profile.timeline)}, effort: ${EFFORT_LABELS[profile.effortLevel]}`);
   if (profile.currentSituation) lines.push(`Current situation: ${profile.currentSituation}`);
   if (profile.latestMeasurement?.weight) {
-    lines.push(`Latest weight: ${profile.latestMeasurement.weight}kg`);
+    lines.push(`Latest weight: ${formatDecimal(profile.latestMeasurement.weight)}kg`);
   }
   if (profile.extracted.currentBodyFat) {
-    lines.push(`Body fat: ${profile.extracted.currentBodyFat}%`);
+    lines.push(`Body fat: ${formatDecimal(profile.extracted.currentBodyFat)}%`);
   }
   if (profile.targets.calculated && profile.targets.calories) {
     lines.push(

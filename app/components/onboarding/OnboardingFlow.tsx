@@ -6,7 +6,9 @@ import {
   ageFromDateOfBirth,
   dobFromParts,
   EFFORT_LABELS,
+  formatDecimal,
   parseDobParts,
+  roundDecimal,
   timelineLabel,
 } from "@/lib/profile-helpers";
 import { debugSkipOnboarding } from "@/lib/dev-shortcuts";
@@ -164,9 +166,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       onError: () => setScaleStatus("error"),
       onReading: ({ weight, composition }) => {
         const m = {
-          weight: Math.round(weight * 100) / 100,
-          bodyFat: parseFloat(String(composition.bodyFat ?? "")),
-          muscleMass: parseFloat(String(composition.muscleMass ?? "")),
+          weight: roundDecimal(weight),
+          bodyFat: composition.bodyFat != null ? roundDecimal(Number(composition.bodyFat)) : undefined,
+          muscleMass: composition.muscleMass != null ? roundDecimal(Number(composition.muscleMass)) : undefined,
           date: new Date().toISOString(),
         };
         setMeasurement(m);
@@ -332,7 +334,7 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       {scaleDone ? (
         <div style={{ padding: 20, background: C.success, borderRadius: 16, marginBottom: 24 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: C.successText }}>Reading complete</div>
-          {measurement?.weight && <div style={{ fontSize: 13, color: C.successText, marginTop: 6, opacity: 0.85 }}>{measurement.weight}kg logged</div>}
+          {measurement?.weight && <div style={{ fontSize: 13, color: C.successText, marginTop: 6, opacity: 0.85 }}>{formatDecimal(measurement.weight)}kg logged</div>}
         </div>
       ) : (
         <>

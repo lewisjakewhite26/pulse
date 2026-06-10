@@ -13,7 +13,7 @@ import {
   createDefaultProfile, getCoachState, clearCoachUnread,
   createAccount, hasAccount, setUnlocked,
 } from "../lib/storage";
-import { ageFromDateOfBirth } from "../lib/profile-helpers";
+import { ageFromDateOfBirth, formatDecimal, roundDecimal } from "../lib/profile-helpers";
 import { ensureWelcomeInChatHistory, runOnboardingBackgroundTasks } from "../lib/onboarding-client";
 import { parseActivityFile, stravaActivityToUpload } from "../lib/activity-parser";
 import { isStravaClientConfigured } from "../lib/strava-config";
@@ -771,9 +771,15 @@ export default function Pulse() {
       onDebugLog: (message) => setDebugLogs((prev) => [...prev, message]), // DEBUG — remove after fix
       onReading: ({ weight, impedance, composition }) => {
         setScaleMeasurement({
-          weight,
+          weight: roundDecimal(weight),
           impedance,
-          ...composition,
+          bodyFat: composition.bodyFat != null ? roundDecimal(composition.bodyFat) : undefined,
+          muscleMass: composition.muscleMass != null ? roundDecimal(composition.muscleMass) : undefined,
+          boneMass: composition.boneMass != null ? roundDecimal(composition.boneMass) : undefined,
+          waterPct: composition.waterPct != null ? roundDecimal(composition.waterPct) : undefined,
+          leanMass: composition.leanMass != null ? roundDecimal(composition.leanMass) : undefined,
+          bmr: composition.bmr != null ? Math.round(composition.bmr) : undefined,
+          bmi: composition.bmi != null ? roundDecimal(composition.bmi) : undefined,
           time: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
         });
       },
@@ -808,14 +814,14 @@ export default function Pulse() {
     addMeasurement({
       date: formatDate(new Date()),
       time: scaleMeasurement.time,
-      weight: scaleMeasurement.weight,
-      bodyFat: scaleMeasurement.bodyFat,
-      muscleMass: scaleMeasurement.muscleMass,
-      boneMass: scaleMeasurement.boneMass,
-      waterPct: scaleMeasurement.waterPct,
-      leanMass: scaleMeasurement.leanMass,
-      bmr: scaleMeasurement.bmr,
-      bmi: scaleMeasurement.bmi,
+      weight: scaleMeasurement.weight != null ? roundDecimal(scaleMeasurement.weight) : undefined,
+      bodyFat: scaleMeasurement.bodyFat != null ? roundDecimal(scaleMeasurement.bodyFat) : undefined,
+      muscleMass: scaleMeasurement.muscleMass != null ? roundDecimal(scaleMeasurement.muscleMass) : undefined,
+      boneMass: scaleMeasurement.boneMass != null ? roundDecimal(scaleMeasurement.boneMass) : undefined,
+      waterPct: scaleMeasurement.waterPct != null ? roundDecimal(scaleMeasurement.waterPct) : undefined,
+      leanMass: scaleMeasurement.leanMass != null ? roundDecimal(scaleMeasurement.leanMass) : undefined,
+      bmr: scaleMeasurement.bmr != null ? Math.round(scaleMeasurement.bmr) : undefined,
+      bmi: scaleMeasurement.bmi != null ? roundDecimal(scaleMeasurement.bmi) : undefined,
       impedance: scaleMeasurement.impedance,
     });
     setMeasurementSaved(true);
@@ -886,19 +892,19 @@ export default function Pulse() {
             ) : (
               <>
                 <div style={{ fontSize: 44, fontWeight: 800, color: C.primary, letterSpacing: "-0.04em", lineHeight: 1, marginBottom: 16 }}>
-                  {latestMeasurement.weight}<span style={{ fontSize: 18, fontWeight: 700 }}> kg</span>
+                  {formatDecimal(latestMeasurement.weight)}<span style={{ fontSize: 18, fontWeight: 700 }}> kg</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {latestMeasurement.bodyFat != null && (
                     <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.5)", borderRadius: 12, border: `1px solid ${C.outline}` }}>
                       <Label style={{ marginBottom: 4, display: "block" }}>Body fat</Label>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: C.onSurface }}>{latestMeasurement.bodyFat}%</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.onSurface }}>{formatDecimal(latestMeasurement.bodyFat)}%</div>
                     </div>
                   )}
                   {latestMeasurement.muscleMass != null && (
                     <div style={{ padding: "12px 14px", background: "rgba(255,255,255,0.5)", borderRadius: 12, border: `1px solid ${C.outline}` }}>
                       <Label style={{ marginBottom: 4, display: "block" }}>Muscle mass</Label>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: C.onSurface }}>{latestMeasurement.muscleMass} kg</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.onSurface }}>{formatDecimal(latestMeasurement.muscleMass)} kg</div>
                     </div>
                   )}
                 </div>
@@ -945,7 +951,7 @@ export default function Pulse() {
             </div>
             {!isStravaClientConfigured() ? (
               <div style={{ fontSize: 12, color: C.onSurfaceVariant, lineHeight: 1.6 }}>
-                Strava is not set up yet. Ask your admin to connect the app.
+                Strava isn&apos;t connected yet.
               </div>
             ) : stravaTokens ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1015,11 +1021,11 @@ export default function Pulse() {
               {scaleMeasurement && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
                   {[
-                    { label: "Weight", value: `${scaleMeasurement.weight}kg`, color: C.primary },
-                    { label: "Body fat", value: `${scaleMeasurement.bodyFat}%`, color: C.error },
-                    { label: "Muscle", value: `${scaleMeasurement.muscleMass}kg`, color: C.secondary },
-                    { label: "BMI", value: scaleMeasurement.bmi, color: C.tertiary },
-                    { label: "Water", value: `${scaleMeasurement.waterPct}%`, color: "#0891B2" },
+                    { label: "Weight", value: `${formatDecimal(scaleMeasurement.weight)}kg`, color: C.primary },
+                    { label: "Body fat", value: `${formatDecimal(scaleMeasurement.bodyFat)}%`, color: C.error },
+                    { label: "Muscle", value: `${formatDecimal(scaleMeasurement.muscleMass)}kg`, color: C.secondary },
+                    { label: "BMI", value: formatDecimal(scaleMeasurement.bmi), color: C.tertiary },
+                    { label: "Water", value: `${formatDecimal(scaleMeasurement.waterPct)}%`, color: "#0891B2" },
                     { label: "BMR", value: `${scaleMeasurement.bmr} kcal`, color: C.onSurfaceVariant },
                   ].map(m => (
                     <div key={m.label} style={{ padding: "10px 12px", background: "rgba(255,255,255,0.5)", borderRadius: 12, border: `1px solid ${C.outline}` }}>
@@ -1123,7 +1129,7 @@ export default function Pulse() {
                   </svg>
                 </div>
                 <div style={{ display: "flex", gap: 20, marginTop: 12 }}>
-                  <div><div style={{ fontSize: 44, fontWeight: 800, color: C.primary, letterSpacing: "-0.04em", lineHeight: 1 }}>{latestMeasurement?.weight ?? "—"}<span style={{ fontSize: 13, fontWeight: 500, color: C.onSurfaceVariant }}> kg</span></div><Label style={{ marginTop: 6, display: "block" }}>Today</Label></div>
+                  <div><div style={{ fontSize: 44, fontWeight: 800, color: C.primary, letterSpacing: "-0.04em", lineHeight: 1 }}>{latestMeasurement?.weight != null ? formatDecimal(latestMeasurement.weight) : "—"}<span style={{ fontSize: 13, fontWeight: 500, color: C.onSurfaceVariant }}> kg</span></div><Label style={{ marginTop: 6, display: "block" }}>Today</Label></div>
                   {weightPoints.length >= 2 && (() => {
                     const change = weightPoints[weightPoints.length - 1].weight - weightPoints[0].weight;
                     const down = change < 0;
