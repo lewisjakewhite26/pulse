@@ -180,25 +180,24 @@ Generate milestones at: 2 weeks, 1 month, 6 weeks, 2 months, 3 months, then ever
 
 export function buildCoachGeminiBody(
   userPrompt: string,
-  options: { json?: boolean; temperature?: number; maxTokens?: number } = {}
+  options: {
+    json?: boolean;
+    search?: boolean;
+    temperature?: number;
+    maxTokens?: number;
+  } = {}
 ) {
+  const useSearch = options.search ?? false;
+  const useJsonMime = options.json !== false && !useSearch;
   return {
     systemInstruction: { parts: [{ text: COACH_SYSTEM_PROMPT }] },
     contents: [{ parts: [{ text: userPrompt }] }],
-    tools: [
-      {
-        google_search_retrieval: {
-          dynamic_retrieval_config: {
-            mode: "MODE_DYNAMIC",
-            dynamic_threshold: 0.3,
-          },
-        },
-      },
-    ],
+    ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
     generationConfig: {
       temperature: options.temperature ?? 0.65,
       maxOutputTokens: options.maxTokens ?? 1200,
-      ...(options.json !== false ? { responseMimeType: "application/json" } : {}),
+      // google_search and responseMimeType cannot be combined on current Gemini models
+      ...(useJsonMime ? { responseMimeType: "application/json" } : {}),
     },
   };
 }
@@ -263,5 +262,10 @@ export function normaliseCoachResponse(raw: Record<string, unknown>): {
 }
 
 export function parseJsonText(text: string): Record<string, unknown> {
-  return JSON.parse(text.replace(/```json|```/g, "").trim()) as Record<string, unknown>;
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>;
+  } catch {
+    return { message: cleaned, should_log: false };
+  }
 }
